@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GraceTools - AI Sermon Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        // State Management
+        const app = {
+            currentPage: 'home',
+            isLoggedIn: localStorage.getItem('isLoggedIn') === 'true',
+            user: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : { name: 'Pastor John', email: 'pastor@church.com', church: 'Grace Baptist', credits: 1250 },
+            sermonState: { package: 'essentials', duration: 30, addons: [] }
+        };
+
+        const mockProjects = [
+            { id: 1, title: 'Romans 3:1-17 - No Condemnation', status: 'ready', package: 'Preacher', date: '2 hours ago', credits: 35 },
+            { id: 2, title: 'A Study of Ephesians', status: 'ready', package: 'Master Sermon', date: 'Yesterday', credits: 65 },
+            { id: 3, title: 'Sunday Morning Sermon - May 12', status: 'generating', package: 'Essentials', date: '5 min ago', progress: 45 }
+        ];
+
+        const packagePrices = { essentials: 15, preacher: 35, master: 65 };
+        const addonPrices = { 'Youth Version': 8, 'Small Group Guide': 10, 'Blog Article': 6, 'Social Posts': 5, 'Discussion Questions': 7, 'Printable': 5 };
+
+        // Navigation
+        function goTo(page) {
+            app.currentPage = page;
+            window.scrollTo(0, 0);
+            render();
+        }
+
+        function handleLogin() {
+            app.isLoggedIn = true;
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('user', JSON.stringify(app.user));
+            goTo('dashboard');
+        }
+
+        function handleLogout() {
+            app.isLoggedIn = false;
+            localStorage.removeItem('isLoggedIn');
+            goTo('home');
+        }
+
+        // Header Component
+        function Header() {
+            return `
+                <header class="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-40">
+                    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+                        <div onclick="goTo('home')" class="text-xl font-bold text-gray-900 cursor-pointer">✚ GraceTools</div>
+                        
+                        <nav class="hidden md:flex items-center gap-8">
+                            ${app.isLoggedIn ? `
+                                <a onclick="goTo('dashboard')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Dashboard</a>
+                                <a onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">How It Works</a>
+                                <a onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Support</a>
+                            ` : `
+                                <a onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">How It Works</a>
+                                <a onclick="goTo('pricing')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Pricing</a>
+                                <a onclick="goTo('about')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">About</a>
+                            `}
+                        </nav>
+
+                        <div class="flex items-center gap-4">
+                            ${app.isLoggedIn ? `
+                                <span class="text-sm text-gray-600 hidden sm:inline">${app.user.name}</span>
+                                <button onclick="goTo('account')" class="text-sm text-gray-600 hover:text-gray-900">Account</button>
+                                <button onclick="handleLogout()" class="text-sm text-gray-600 hover:text-gray-900">Logout</button>
+                            ` : `
+                                <button onclick="goTo('login')" class="hidden sm:inline text-sm text-gray-600 hover:text-gray-900">Login</button>
+                                <button onclick="goTo('signup')" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-purple-700">Sign Up</button>
+                            `}
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        // Pages
+        function HomePage() {
+            return `
+                <div class="pt-16">
+                    <section class="bg-white px-6 py-16">
+                        <div class="max-w-3xl mx-auto text-center">
+                            <h1 class="text-5xl font-bold text-gray-900 mb-4">Sermon Prep Made Simple</h1>
+                            <p class="text-xl text-gray-600 mb-8">Get your Sunday sermon tools in minutes. Select your options, build your package, and get back to people.</p>
+                            <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-purple-700">Start Your Project</button>
+                        </div>
+                    </section>
+
+                    <section class="bg-gray-50 px-6 py-16">
+                        <div class="max-w-2xl mx-auto">
+                            <h2 class="text-3xl font-bold text-gray-900 mb-4">The Challenge Pastors Face</h2>
+                            <p class="text-gray-600 mb-4">Every week brings the same pressure: sermon deadlines, hospital visits, counseling, administration. You need solid biblical research, creative outlines, slides, and discussion guides—but you need them fast.</p>
+                            <p class="text-gray-600">GraceTools takes your starting point—a Bible passage, a topic, your notes, or even a YouTube link—and generates complete sermon packages in your theological framework.</p>
+                            
+                            <div class="grid md:grid-cols-3 gap-4 mt-8">
+                                <div class="bg-white p-6 rounded-xl border border-gray-200">
+                                    <div class="text-2xl mb-2">⚡</div>
+                                    <h3 class="font-semibold text-gray-900 mb-2">Fast</h3>
+                                    <p class="text-sm text-gray-600">Ready in 5-10 minutes</p>
+                                </div>
+                                <div class="bg-white p-6 rounded-xl border border-gray-200">
+                                    <div class="text-2xl mb-2">✓</div>
+                                    <h3 class="font-semibold text-gray-900 mb-2">Doctrine-Aware</h3>
+                                    <p class="text-sm text-gray-600">Respects your theology</p>
+                                </div>
+                                <div class="bg-white p-6 rounded-xl border border-gray-200">
+                                    <div class="text-2xl mb-2">💰</div>
+                                    <h3 class="font-semibold text-gray-900 mb-2">Affordable</h3>
+                                    <p class="text-sm text-gray-600">Pay only what you use</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white px-6 py-16 text-center">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Ready to transform your sermon prep?</h2>
+                        <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-700">Get Started</button>
+                    </section>
+                </div>
+            `;
+        }
+
+        function SignupPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-4 py-8">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Create Account</h1>
+                        <p class="text-gray-600 mb-6 text-sm">Join GraceTools and start building sermons today</p>
+                        
+                        <form onsubmit="handleLogin(); return false;">
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
+                                <input type="text" placeholder="Pastor John Smith" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                <input type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-900 mb-2">Church Name</label>
+                                <input type="text" placeholder="Grace Baptist Church" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-900 mb-2">Password</label>
+                                <input type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-4">Create Account</button>
+                        </form>
+                        <p class="text-center text-gray-600 text-sm">Already have an account? <a onclick="goTo('login')" class="text-purple-600 hover:underline font-semibold cursor-pointer">Login</a></p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function LoginPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-4 py-8">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h1>
+                        <p class="text-gray-600 mb-6 text-sm">Sign in to your GraceTools account</p>
+                        
+                        <form onsubmit="handleLogin(); return false;">
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                <input type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-900 mb-2">Password</label>
+                                <input type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-4">Sign In</button>
+                        </form>
+                        <p class="text-center text-gray-600 text-sm mb-4">
+                            <a href="#" class="text-purple-600 hover:underline">Forgot your password?</a>
+                        </p>
+                        <div class="border-t pt-4">
+                            <p class="text-center text-gray-600 text-sm">Don't have an account? <a onclick="goTo('signup')" class="text-purple-600 hover:underline font-semibold cursor-pointer">Sign up</a></p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function DashboardPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
+                    <div class="max-w-6xl mx-auto">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Welcome back, ${app.user.name}</h1>
+                        <p class="text-gray-600 mb-8">Build your next sermon in minutes</p>
+
+                        <div class="grid md:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-white rounded-2xl border border-gray-200 p-6">
+                                <p class="text-sm text-gray-600 mb-2">Credits Available</p>
+                                <p class="text-4xl font-bold text-purple-600 mb-4">${app.user.credits}</p>
+                                <button onclick="goTo('pricing')" class="text-purple-600 hover:text-purple-700 text-sm font-semibold">Buy More Credits →</button>
+                            </div>
+                            <div class="bg-white rounded-2xl border border-gray-200 p-6">
+                                <p class="text-sm text-gray-600 mb-2">Projects This Month</p>
+                                <p class="text-4xl font-bold text-gray-900">${mockProjects.length}</p>
+                            </div>
+                            <div class="bg-white rounded-2xl border border-gray-200 p-6">
+                                <p class="text-sm text-gray-600 mb-2">Average Time Saved</p>
+                                <p class="text-4xl font-bold text-gray-900">3.5 hrs</p>
+                            </div>
+                        </div>
+
+                        <button onclick="goTo('builder')" class="w-full md:w-auto bg-purple-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-purple-700 mb-8 text-lg">+ Start New Sermon</button>
+
+                        <div class="bg-white rounded-2xl border border-gray-200">
+                            <div class="p-6 border-b border-gray-200">
+                                <h2 class="text-xl font-bold text-gray-900">Recent Projects</h2>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="border-b border-gray-200">
+                                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Project</th>
+                                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Package</th>
+                                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
+                                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${mockProjects.map(p => `
+                                            <tr class="border-b border-gray-200 hover:bg-gray-50">
+                                                <td class="px-6 py-4 text-sm text-gray-900 font-medium">${p.title}</td>
+                                                <td class="px-6 py-4 text-sm text-gray-600">${p.package}</td>
+                                                <td class="px-6 py-4">
+                                                    ${p.status === 'ready' ? 
+                                                        '<span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Ready</span>' :
+                                                        `<span class="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">Generating (${p.progress}%)</span>`
+                                                    }
+                                                </td>
+                                                <td class="px-6 py-4 text-sm text-gray-600">${p.date}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function PricingPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-6xl mx-auto">
+                        <div class="text-center mb-12">
+                            <h1 class="text-4xl font-bold text-gray-900 mb-4">Simple, Transparent Pricing</h1>
+                            <p class="text-xl text-gray-600">Buy credits. Use them. They never expire.</p>
+                        </div>
+
+                        <div class="grid md:grid-cols-3 gap-6 mb-12">
+                            ${[
+                                { credits: 100, price: 9, bonus: 0, best: false },
+                                { credits: 500, price: 39, bonus: 50, best: true },
+                                { credits: 2000, price: 129, bonus: 300, best: false }
+                            ].map((pkg, idx) => `
+                                <div class="rounded-2xl border p-8 ${pkg.best ? 'bg-purple-50 border-purple-200 relative' : 'bg-white border-gray-200'}">
+                                    ${pkg.best ? '<div class="absolute -top-3 left-8 bg-purple-600 text-white px-4 py-1 rounded-full text-sm font-semibold">Most Popular</div>' : ''}
+                                    <h3 class="text-2xl font-bold text-gray-900 mb-2">${pkg.credits} Credits</h3>
+                                    <p class="text-4xl font-bold text-purple-600 mb-2">$${pkg.price}</p>
+                                    ${pkg.bonus > 0 ? `<p class="text-sm text-green-600 font-semibold mb-6">+${pkg.bonus} bonus credits!</p>` : ''}
+                                    <button class="w-full py-3 rounded-lg font-semibold mb-6 ${pkg.best ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}">Buy Now</button>
+                                    <div class="space-y-2 text-sm text-gray-600">
+                                        <p>• Credits never expire</p>
+                                        <p>• Use across all packages</p>
+                                        <p>• Refund within 30 days</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function BuilderPage() {
+            const getTotal = () => {
+                let total = packagePrices[app.sermonState.package];
+                app.sermonState.addons.forEach(addon => { total += addonPrices[addon] || 0; });
+                return total;
+            };
+
+            return `
+                <div class="pt-20 bg-gray-50 min-h-screen px-4 py-8">
+                    <div class="max-w-6xl mx-auto">
+                        <div class="grid lg:grid-cols-3 gap-8">
+                            <div class="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-8">
+                                <h1 class="text-2xl font-bold text-gray-900 mb-6">Let's Build Your Sermon</h1>
+
+                                <div class="mb-8 pb-8 border-b">
+                                    <div class="flex items-center gap-2 mb-4">
+                                        <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">1</div>
+                                        <h2 class="font-semibold text-gray-900">Base Package</h2>
+                                    </div>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        ${Object.entries(packagePrices).map(([pkg, price]) => `
+                                            <button onclick="app.sermonState.package='${pkg}'; render()" class="p-4 rounded-lg border-2 text-center ${app.sermonState.package === pkg ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
+                                                <div class="font-semibold text-gray-900 capitalize">${pkg}</div>
+                                                <div class="text-sm text-gray-600">${price} credits</div>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <div class="mb-8 pb-8 border-b">
+                                    <div class="flex items-center gap-2 mb-4">
+                                        <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">2</div>
+                                        <h2 class="font-semibold text-gray-900">Starting Point</h2>
+                                    </div>
+                                    <textarea placeholder="Paste your content or notes here..." class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4"></textarea>
+                                </div>
+
+                                <div class="mb-8 pb-8 border-b">
+                                    <div class="flex items-center gap-2 mb-4">
+                                        <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">3</div>
+                                        <h2 class="font-semibold text-gray-900">Duration</h2>
+                                    </div>
+                                    <div class="flex gap-2 flex-wrap">
+                                        ${[15, 30, 45, 60, 90].map(min => `
+                                            <button onclick="app.sermonState.duration=${min}; render()" class="px-4 py-2 rounded-lg border ${app.sermonState.duration === min ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-900'}">${min} min</button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="flex items-center gap-2 mb-4">
+                                        <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">4</div>
+                                        <h2 class="font-semibold text-gray-900">Add-ons</h2>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        ${Object.entries(addonPrices).map(([addon, price]) => `
+                                            <button onclick="
+                                                if(app.sermonState.addons.includes('${addon}')) {
+                                                    app.sermonState.addons = app.sermonState.addons.filter(a => a !== '${addon}');
+                                                } else {
+                                                    app.sermonState.addons.push('${addon}');
+                                                }
+                                                render();
+                                            " class="p-4 rounded-lg border-2 text-left ${app.sermonState.addons.includes(addon) ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
+                                                <div class="font-semibold text-sm text-gray-900">${addon}</div>
+                                                <div class="text-xs text-purple-600 font-semibold">+${price} credits</div>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-200 p-6 h-fit">
+                                <h2 class="font-bold text-gray-900 mb-4">Your Selection</h2>
+                                
+                                <div class="mb-6 space-y-3 pb-6 border-b">
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Package</span>
+                                        <span class="font-semibold text-gray-900 capitalize">${app.sermonState.package}</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Duration</span>
+                                        <span class="font-semibold text-gray-900">${app.sermonState.duration} min</span>
+                                    </div>
+                                    ${app.sermonState.addons.length > 0 ? `
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Add-ons</span>
+                                            <span class="font-semibold text-gray-900">${app.sermonState.addons.length}</span>
+                                        </div>
+                                    ` : ''}
+                                </div>
+
+                                <div class="bg-purple-50 p-4 rounded-lg mb-6">
+                                    <p class="text-xs text-gray-600 mb-1">TOTAL CREDITS</p>
+                                    <p class="text-3xl font-bold text-purple-600">${getTotal()}</p>
+                                </div>
+
+                                <button onclick="goTo('checkout')" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-2">Proceed to Checkout</button>
+                                <p class="text-xs text-gray-600 text-center">One payment before generation</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function PricingPageComplete() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-4xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-4">About GraceTools</h1>
+                        <p class="text-xl text-gray-600 mb-12">Empowering pastors with AI-powered sermon tools that respect theology and save time.</p>
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Our Mission</h2>
+                            <p class="text-gray-600 mb-4">To empower pastors and Bible teachers with AI-powered tools that respect their theological framework and free up time for what matters most: shepherding people.</p>
+                            <p class="text-gray-600">Built with a Mid-Acts Dispensational, Grace theology foundation. Every verse matters. Every context counts.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function AccountPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
+                    <div class="max-w-3xl mx-auto">
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold text-gray-900 mb-6">Account Settings</h2>
+                            <form class="space-y-6">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
+                                    <input type="text" value="${app.user.name}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                    <input type="email" value="${app.user.email}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-900 mb-2">Church</label>
+                                    <input type="text" value="${app.user.church}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                </div>
+                                <button type="button" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Save Changes</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render
+        function render() {
+            let content = '';
+            
+            if (app.currentPage === 'home') content = HomePage();
+            else if (app.currentPage === 'signup') content = app.isLoggedIn ? '' : SignupPage();
+            else if (app.currentPage === 'login') content = app.isLoggedIn ? '' : LoginPage();
+            else if (app.currentPage === 'dashboard') content = app.isLoggedIn ? DashboardPage() : HomePage();
+            else if (app.currentPage === 'pricing') content = PricingPage();
+            else if (app.currentPage === 'builder') content = app.isLoggedIn ? BuilderPage() : SignupPage();
+            else if (app.currentPage === 'about') content = PricingPageComplete();
+            else if (app.currentPage === 'account') content = app.isLoggedIn ? AccountPage() : HomePage();
+            else if (app.currentPage === 'how-it-works') content = `<div class="pt-20 min-h-screen px-6 py-12 bg-gray-50"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">How It Works</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4">1. Choose a package (Essentials, Preacher, or Master Sermon)</p><p class="text-gray-600 mb-4">2. Provide your input (passage, topic, notes, or YouTube link)</p><p class="text-gray-600 mb-4">3. Configure your settings (theology, translation, audience, length)</p><p class="text-gray-600 mb-4">4. Add optional features (discussion guides, social posts, etc.)</p><p class="text-gray-600 mb-4">5. Checkout with credits (they never expire)</p><p class="text-gray-600">6. AI generates your complete sermon in 5-10 minutes</p></div></div></div>`;
+            else if (app.currentPage === 'support') content = `<div class="pt-20 min-h-screen px-6 py-12 bg-gray-50"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">Support</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4"><strong>Email:</strong> support@gracetools.com</p><p class="text-gray-600 mb-4"><strong>Response Time:</strong> Within 24 hours</p><p class="text-gray-600">Have a question? We're here to help!</p></div></div></div>`;
+            else if (app.currentPage === 'checkout') content = `<div class="pt-20 min-h-screen bg-gray-50 px-4 py-8"><div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8"><h1 class="text-2xl font-bold text-gray-900 mb-6">Checkout</h1><div class="bg-gray-50 rounded-lg p-4 mb-6"><p class="text-sm text-gray-600 mb-2">Ready to create your sermon?</p><p class="font-semibold text-gray-900 mb-4">${app.sermonState.package} Package</p><button class="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 mb-4">Complete Purchase with Stripe</button><p class="text-xs text-gray-600 text-center">(Stripe integration will be connected to real payment processing)</p></div></div></div>`;
+
+            document.getElementById('app').innerHTML = Header() + content + `
+                <footer class="bg-white border-t border-gray-200 px-6 py-8 mt-12">
+                    <div class="max-w-7xl mx-auto text-center text-sm text-gray-600">
+                        <div class="mb-4 space-x-4">
+                            <a href="#" class="hover:text-gray-900">Legal</a>
+                            <a href="#" class="hover:text-gray-900">Terms</a>
+                            <a href="#" class="hover:text-gray-900">Privacy</a>
+                            <a href="#" class="hover:text-gray-900">Support</a>
+                        </div>
+                        <p>© 2024 GraceTools. Built for pastors.</p>
+                    </div>
+                </footer>
+            `;
+        }
+
+        // Init
+        render();
+    </script>
+</body>
+</html>
