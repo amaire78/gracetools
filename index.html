@@ -57,6 +57,20 @@
             master: ['Youth Version', 'Small Group Guide', 'Blog Article', 'Social Posts', 'Discussion Questions', 'Printable']
         };
 
+        // Set this once your AnythingLLM instance is deployed and white-labeled
+        // (e.g. on Railway). Leave as null until then - the nav link will show
+        // a friendly "coming soon" message instead of a broken link.
+        const ANYTHINGLLM_URL = null; // e.g. 'https://sermon-library.gracetools.com'
+
+        function openSermonLibrary() {
+            if (!ANYTHINGLLM_URL) {
+                setFlash('info', 'Sermon Library is being set up \u2014 check back soon!');
+                render();
+                return;
+            }
+            window.open(ANYTHINGLLM_URL, '_blank');
+        }
+
         // Navigation
         function goTo(page) {
             app.currentPage = page;
@@ -339,6 +353,7 @@
                         <nav class="hidden md:flex items-center gap-8">
                             ${app.isLoggedIn ? `
                                 <button type="button" onclick="goTo('dashboard')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Dashboard</button>
+                                <button type="button" onclick="openSermonLibrary()" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Sermon Library</button>
                                 <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
                                 <button type="button" onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
                             ` : `
