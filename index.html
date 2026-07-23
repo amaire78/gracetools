@@ -21,17 +21,42 @@
             currentPage: 'home',
             isLoggedIn: localStorage.getItem('isLoggedIn') === 'true',
             user: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : { name: 'Pastor John', email: 'pastor@church.com', church: 'Grace Baptist', credits: 1250 },
-            sermonState: { package: 'essentials', duration: 30, addons: [] }
+            sermonState: {
+                package: 'essentials',
+                duration: 30,
+                addons: [],
+                inputType: 'passage',
+                inputContent: '',
+                translation: 'KJV',
+                audience: 'Sunday Morning - Mixed'
+            },
+            flash: null
         };
 
         const mockProjects = [
             { id: 1, title: 'Romans 3:1-17 - No Condemnation', status: 'ready', package: 'Preacher', date: '2 hours ago', credits: 35 },
             { id: 2, title: 'A Study of Ephesians', status: 'ready', package: 'Master Sermon', date: 'Yesterday', credits: 65 },
-            { id: 3, title: 'Sunday Morning Sermon - May 12', status: 'generating', package: 'Essentials', date: '5 min ago', progress: 45 }
+            { id: 3, title: 'Sunday Morning Sermon - May 12', status: 'generating', package: 'Essentials', date: '5 min ago', progress: 45 },
+            { id: 4, title: 'Grace vs. Law - Galatians', status: 'failed', package: 'Preacher', date: '3 days ago', credits: 35 }
         ];
 
         const packagePrices = { essentials: 15, preacher: 35, master: 65 };
         const addonPrices = { 'Youth Version': 8, 'Small Group Guide': 10, 'Blog Article': 6, 'Social Posts': 5, 'Discussion Questions': 7, 'Printable': 5 };
+
+        const inputTypes = [
+            { key: 'passage', label: 'Bible Passage', placeholder: 'e.g. Romans 8:1-4' },
+            { key: 'topic', label: 'Topic', placeholder: 'e.g. Walking in grace during suffering' },
+            { key: 'notes', label: 'My Notes', placeholder: 'Paste your rough notes or outline here...' },
+            { key: 'youtube', label: 'YouTube Link', placeholder: 'https://youtube.com/watch?v=...' }
+        ];
+        const translations = ['KJV', 'NASB', 'NKJV', 'ESV', 'NIV'];
+        const audiences = ['Sunday Morning - Mixed', 'Youth Service', 'Small Group / Bible Study', 'Funeral / Memorial', 'Wedding', "Men's / Women's Ministry"];
+        const packageRecommendedDuration = { essentials: [15, 30], preacher: [30, 45, 60], master: [45, 60, 90] };
+        const packageRecommendedAddons = {
+            essentials: ['Discussion Questions', 'Printable'],
+            preacher: ['Discussion Questions', 'Printable', 'Small Group Guide', 'Blog Article'],
+            master: ['Youth Version', 'Small Group Guide', 'Blog Article', 'Social Posts', 'Discussion Questions', 'Printable']
+        };
 
         // Navigation
         function goTo(page) {
@@ -40,17 +65,222 @@
             render();
         }
 
-        function handleLogin() {
+        // Flash messages survive exactly one render (including through a goTo
+        // that immediately follows setFlash), then clear themselves on the
+        // next render so they don't linger across unrelated navigation.
+        function setFlash(type, text) {
+            app.flash = { type, text, shown: false };
+        }
+
+        // Every account, real or returning, is created/looked-up through this
+        // one webhook, which upserts into the real Supabase users table and
+        // always returns the canonical row (real id + real credits_balance).
+        // This is what completeCheckout's credit deduction depends on.
+        const CREATE_USER_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/0f43fdcb-2707-4796-9a7e-312f11e44f73/create-user';
+
+        // Shared key required by every GraceTools webhook. Note: since this
+        // ships in client-side JS, a determined attacker could still extract
+        // it from the page source - this stops casual scraping/enumeration
+        // but is not a substitute for real per-user session authentication.
+        const GRACETOOLS_API_KEY = 'WtESSNN3F8YgGRLcwn0I3-UpOUFSgu_h97w2gJ-hLdU';
+
+        function applyAccountFromServer(serverUser, fallbackName, fallbackChurch) {
+            app.user = {
+                name: serverUser.display_name || fallbackName || app.user.name,
+                email: serverUser.email,
+                church: serverUser.church_name || fallbackChurch || app.user.church,
+                credits: typeof serverUser.credits_balance === 'number' ? serverUser.credits_balance : 0
+            };
             app.isLoggedIn = true;
             localStorage.setItem('isLoggedIn', 'true');
             localStorage.setItem('user', JSON.stringify(app.user));
-            goTo('dashboard');
+            localStorage.setItem('userId', serverUser.id);
+        }
+
+        async function handleSignup() {
+            const name = document.getElementById('signup-name').value;
+            const email = document.getElementById('signup-email').value;
+            const church = document.getElementById('signup-church').value;
+            // Note: this creates the real account record (name, email, church,
+            // credits) in Supabase. It does not yet verify passwords against a
+            // real auth provider - that still needs Supabase Auth wired in.
+            try {
+                const res = await fetch(CREATE_USER_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ user_id: ensureUserId(), email, name, church, starting_credits: 0 })
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                const data = await res.json();
+                applyAccountFromServer(data.user, name, church);
+                goTo('dashboard');
+            } catch (err) {
+                setFlash('error', "Couldn't create your account (" + err.message + "). Please try again.");
+                render();
+            }
+        }
+
+        async function handleLoginSubmit() {
+            const email = document.getElementById('login-email').value;
+            // Same real webhook, looked up by email. This restores your real
+            // name, church, and credit balance from Supabase. It does not yet
+            // verify the password field against a real auth provider.
+            try {
+                const res = await fetch(CREATE_USER_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ user_id: ensureUserId(), email })
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                const data = await res.json();
+                applyAccountFromServer(data.user, app.user.name, app.user.church);
+                goTo('dashboard');
+            } catch (err) {
+                setFlash('error', "Couldn't sign you in (" + err.message + "). Please try again.");
+                render();
+            }
         }
 
         function handleLogout() {
             app.isLoggedIn = false;
             localStorage.removeItem('isLoggedIn');
             goTo('home');
+        }
+
+        function getSermonTotal() {
+            let total = packagePrices[app.sermonState.package];
+            app.sermonState.addons.forEach(addon => { total += addonPrices[addon] || 0; });
+            return total;
+        }
+
+        function fillExample() {
+            app.sermonState.inputType = 'passage';
+            app.sermonState.inputContent = 'Romans 8:1-4';
+            render();
+        }
+
+        function updateInputContent(value) {
+            app.sermonState.inputContent = value;
+        }
+
+        // This is the ONLY place user_email is read from for sermon delivery -
+        // always the account's email (set at signup, editable on Account page),
+        // never anything typed elsewhere. This guarantees the finished sermon
+        // is always emailed to whatever address the customer has on file.
+        const SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/gracetools-sermon-gen/generate-sermon';
+
+        function ensureUserId() {
+            let id = localStorage.getItem('userId');
+            if (!id) {
+                id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('temp-' + Date.now());
+                localStorage.setItem('userId', id);
+            }
+            return id;
+        }
+
+        async function completeCheckout() {
+            const total = getSermonTotal();
+            if (app.user.credits < total) {
+                setFlash('error', "You don't have enough credits for this package. Buy more credits to continue.");
+                render();
+                return;
+            }
+
+            const destinationEmail = app.user.email; // account email, explicitly
+
+            const payload = {
+                user_id: ensureUserId(),
+                user_email: destinationEmail,
+                project_id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('proj-' + Date.now()),
+                input_type: app.sermonState.inputType,
+                input_content: app.sermonState.inputContent || 'Romans 8:1-4',
+                base_package: app.sermonState.package,
+                credits_cost: total,
+                doctrinal_position: 'Mid-Acts Dispensational',
+                bible_translation: app.sermonState.translation,
+                audience: app.sermonState.audience,
+                sermon_style: 'Expository (Verse-by-Verse)',
+                desired_length: app.sermonState.duration,
+                addons: app.sermonState.addons
+            };
+
+            setFlash('info', 'Submitting your sermon \u2014 it will be generated and emailed to ' + destinationEmail + '. This usually takes 30-90 seconds.');
+            render();
+
+            try {
+                const res = await fetch(SERMON_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                    const errText = await res.text().catch(() => '');
+                    throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 200) : ''));
+                }
+                app.user.credits -= total;
+                localStorage.setItem('user', JSON.stringify(app.user));
+                setFlash('success', 'Your sermon is generating now and will be emailed to ' + destinationEmail + ' shortly.');
+            } catch (err) {
+                setFlash('error', "Your sermon couldn't be submitted (" + err.message + "). Your credits were NOT charged \u2014 please try again or contact support@gracetools.com.");
+            }
+            goTo('dashboard');
+        }
+
+        function saveAccount() {
+            const name = document.getElementById('acct-name').value;
+            const email = document.getElementById('acct-email').value;
+            const church = document.getElementById('acct-church').value;
+            app.user.name = name;
+            app.user.email = email;
+            app.user.church = church;
+            localStorage.setItem('user', JSON.stringify(app.user));
+            setFlash('success', 'Your account changes were saved.');
+            goTo('account');
+        }
+
+        function buyCredits(credits) {
+            setFlash('info', 'Live payments aren\'t connected yet, so this is a placeholder \u2014 buying ' + credits + ' credits will work once Stripe billing goes live.');
+            render();
+        }
+
+        function sendPasswordReset() {
+            const email = document.getElementById('reset-email') ? document.getElementById('reset-email').value : '';
+            setFlash('success', email ? ("If an account exists for " + email + ", reset instructions are on the way.") : 'Enter your email above and we\'ll send reset instructions.');
+            render();
+        }
+
+        function viewProject(id) {
+            const p = mockProjects.find(pr => pr.id === id);
+            if (!p) return;
+            if (p.status === 'ready') {
+                setFlash('info', 'Opening "' + p.title + '"\u2014 the full sermon viewer will be live once your account is connected to real project data.');
+            } else if (p.status === 'failed') {
+                setFlash('error', '"' + p.title + '" failed to generate. Your ' + p.credits + ' credits were automatically refunded to your account.');
+            } else {
+                setFlash('info', '"' + p.title + '" is still generating. Check back in a few minutes \u2014 we\'ll be able to email you the moment it\'s ready.');
+            }
+            render();
+        }
+
+        // Flash banner, shown at the top of page content when set
+        function FlashBanner() {
+            if (!app.flash) return '';
+            if (app.flash.shown) {
+                app.flash = null;
+                return '';
+            }
+            app.flash.shown = true;
+            const styles = {
+                success: 'bg-green-50 border-green-200 text-green-800',
+                error: 'bg-red-50 border-red-200 text-red-800',
+                info: 'bg-purple-50 border-purple-200 text-purple-800'
+            };
+            const style = styles[app.flash.type] || styles.info;
+            return `
+                <div class="max-w-6xl mx-auto px-4 pt-4">
+                    <div class="border rounded-lg px-4 py-3 text-sm ${style}">${app.flash.text}</div>
+                </div>
+            `;
         }
 
         // Header Component
@@ -62,13 +292,13 @@
                         
                         <nav class="hidden md:flex items-center gap-8">
                             ${app.isLoggedIn ? `
-                                <a onclick="goTo('dashboard')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Dashboard</a>
-                                <a onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">How It Works</a>
-                                <a onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Support</a>
+                                <button type="button" onclick="goTo('dashboard')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Dashboard</button>
+                                <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
+                                <button type="button" onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
                             ` : `
-                                <a onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">How It Works</a>
-                                <a onclick="goTo('pricing')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Pricing</a>
-                                <a onclick="goTo('about')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer">About</a>
+                                <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
+                                <button type="button" onclick="goTo('pricing')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Pricing</button>
+                                <button type="button" onclick="goTo('about')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">About</button>
                             `}
                         </nav>
 
@@ -94,8 +324,8 @@
                     <section class="bg-white px-6 py-16">
                         <div class="max-w-3xl mx-auto text-center">
                             <h1 class="text-5xl font-bold text-gray-900 mb-4">Sermon Prep Made Simple</h1>
-                            <p class="text-xl text-gray-600 mb-8">Get your Sunday sermon tools in minutes. Select your options, build your package, and get back to people.</p>
-                            <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-purple-700">Start Your Project</button>
+                            <p class="text-xl text-gray-600 mb-8">Get your Sunday sermon tools in minutes, so you can get back to people.</p>
+                            <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-purple-700">Start a Sermon</button>
                         </div>
                     </section>
 
@@ -106,17 +336,17 @@
                             <p class="text-gray-600">GraceTools takes your starting point—a Bible passage, a topic, your notes, or even a YouTube link—and generates complete sermon packages in your theological framework.</p>
                             
                             <div class="grid md:grid-cols-3 gap-4 mt-8">
-                                <div class="bg-white p-6 rounded-xl border border-gray-200">
+                                <div class="bg-white p-6 rounded-2xl border border-gray-200">
                                     <div class="text-2xl mb-2">⚡</div>
                                     <h3 class="font-semibold text-gray-900 mb-2">Fast</h3>
                                     <p class="text-sm text-gray-600">Ready in 5-10 minutes</p>
                                 </div>
-                                <div class="bg-white p-6 rounded-xl border border-gray-200">
+                                <div class="bg-white p-6 rounded-2xl border border-gray-200">
                                     <div class="text-2xl mb-2">✓</div>
                                     <h3 class="font-semibold text-gray-900 mb-2">Doctrine-Aware</h3>
                                     <p class="text-sm text-gray-600">Respects your theology</p>
                                 </div>
-                                <div class="bg-white p-6 rounded-xl border border-gray-200">
+                                <div class="bg-white p-6 rounded-2xl border border-gray-200">
                                     <div class="text-2xl mb-2">💰</div>
                                     <h3 class="font-semibold text-gray-900 mb-2">Affordable</h3>
                                     <p class="text-sm text-gray-600">Pay only what you use</p>
@@ -127,7 +357,7 @@
 
                     <section class="bg-white px-6 py-16 text-center">
                         <h2 class="text-2xl font-bold text-gray-900 mb-4">Ready to transform your sermon prep?</h2>
-                        <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-700">Get Started</button>
+                        <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-700">Start a Sermon</button>
                     </section>
                 </div>
             `;
@@ -140,26 +370,27 @@
                         <h1 class="text-2xl font-bold text-gray-900 mb-2">Create Account</h1>
                         <p class="text-gray-600 mb-6 text-sm">Join GraceTools and start building sermons today</p>
                         
-                        <form onsubmit="handleLogin(); return false;">
+                        <form onsubmit="handleSignup(); return false;">
                             <div class="mb-4">
-                                <label class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
-                                <input type="text" placeholder="Pastor John Smith" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <label for="signup-name" class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
+                                <input id="signup-name" required type="text" placeholder="Pastor John Smith" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                             </div>
                             <div class="mb-4">
-                                <label class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
-                                <input type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <label for="signup-email" class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                <input id="signup-email" required type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                             </div>
                             <div class="mb-4">
-                                <label class="block text-sm font-semibold text-gray-900 mb-2">Church Name</label>
-                                <input type="text" placeholder="Grace Baptist Church" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <label for="signup-church" class="block text-sm font-semibold text-gray-900 mb-2">Church Name</label>
+                                <input id="signup-church" type="text" placeholder="Grace Baptist Church" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                             </div>
                             <div class="mb-6">
-                                <label class="block text-sm font-semibold text-gray-900 mb-2">Password</label>
-                                <input type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <label for="signup-password" class="block text-sm font-semibold text-gray-900 mb-2">Password</label>
+                                <input id="signup-password" required minlength="8" type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <p class="text-xs text-gray-500 mt-1">At least 8 characters</p>
                             </div>
                             <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-4">Create Account</button>
                         </form>
-                        <p class="text-center text-gray-600 text-sm">Already have an account? <a onclick="goTo('login')" class="text-purple-600 hover:underline font-semibold cursor-pointer">Login</a></p>
+                        <p class="text-center text-gray-600 text-sm">Already have an account? <button type="button" onclick="goTo('login')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Login</button></p>
                     </div>
                 </div>
             `;
@@ -172,29 +403,57 @@
                         <h1 class="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h1>
                         <p class="text-gray-600 mb-6 text-sm">Sign in to your GraceTools account</p>
                         
-                        <form onsubmit="handleLogin(); return false;">
+                        <form onsubmit="handleLoginSubmit(); return false;">
                             <div class="mb-4">
-                                <label class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
-                                <input type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <label for="login-email" class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                <input id="login-email" required type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                             </div>
                             <div class="mb-6">
-                                <label class="block text-sm font-semibold text-gray-900 mb-2">Password</label>
-                                <input type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <label for="login-password" class="block text-sm font-semibold text-gray-900 mb-2">Password</label>
+                                <input id="login-password" required type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                             </div>
                             <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-4">Sign In</button>
                         </form>
                         <p class="text-center text-gray-600 text-sm mb-4">
-                            <a href="#" class="text-purple-600 hover:underline">Forgot your password?</a>
+                            <button type="button" onclick="goTo('forgot-password')" class="text-purple-600 hover:underline cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Forgot your password?</button>
                         </p>
                         <div class="border-t pt-4">
-                            <p class="text-center text-gray-600 text-sm">Don't have an account? <a onclick="goTo('signup')" class="text-purple-600 hover:underline font-semibold cursor-pointer">Sign up</a></p>
+                            <p class="text-center text-gray-600 text-sm">Don't have an account? <button type="button" onclick="goTo('signup')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Sign up</button></p>
                         </div>
                     </div>
                 </div>
             `;
         }
 
+        function ForgotPasswordPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-4 py-8">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Reset Your Password</h1>
+                        <p class="text-gray-600 mb-6 text-sm">Enter your email and we'll send you reset instructions.</p>
+                        <div class="mb-6">
+                            <label for="reset-email" class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                            <input id="reset-email" type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                        </div>
+                        <button onclick="sendPasswordReset()" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-4">Send Reset Link</button>
+                        <p class="text-center text-gray-600 text-sm"><button type="button" onclick="goTo('login')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Back to Login</button></p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function statusBadge(p) {
+            if (p.status === 'ready') {
+                return '<span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Ready</span>';
+            }
+            if (p.status === 'failed') {
+                return '<span class="px-3 py-1 bg-red-100 text-red-800 text-xs font-semibold rounded-full">Failed \u2014 Refunded</span>';
+            }
+            return `<span class="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">Generating${p.progress ? ' (' + p.progress + '%)' : ''}</span>`;
+        }
+
         function DashboardPage() {
+            const lowCredits = app.user.credits < packagePrices.essentials;
             return `
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
                     <div class="max-w-6xl mx-auto">
@@ -205,6 +464,7 @@
                             <div class="bg-white rounded-2xl border border-gray-200 p-6">
                                 <p class="text-sm text-gray-600 mb-2">Credits Available</p>
                                 <p class="text-4xl font-bold text-purple-600 mb-4">${app.user.credits}</p>
+                                ${lowCredits ? '<p class="text-xs text-red-600 mb-2">Too low for a new sermon (min ' + packagePrices.essentials + ')</p>' : ''}
                                 <button onclick="goTo('pricing')" class="text-purple-600 hover:text-purple-700 text-sm font-semibold">Buy More Credits →</button>
                             </div>
                             <div class="bg-white rounded-2xl border border-gray-200 p-6">
@@ -217,12 +477,18 @@
                             </div>
                         </div>
 
-                        <button onclick="goTo('builder')" class="w-full md:w-auto bg-purple-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-purple-700 mb-8 text-lg">+ Start New Sermon</button>
+                        <button onclick="goTo('builder')" class="w-full md:w-auto bg-purple-600 text-white px-8 py-4 rounded-lg font-semibold hover:bg-purple-700 mb-8 text-lg">+ Start a Sermon</button>
 
                         <div class="bg-white rounded-2xl border border-gray-200">
                             <div class="p-6 border-b border-gray-200">
                                 <h2 class="text-xl font-bold text-gray-900">Recent Projects</h2>
                             </div>
+                            ${mockProjects.length === 0 ? `
+                                <div class="p-12 text-center">
+                                    <p class="text-gray-600 mb-4">No projects yet \u2014 your first sermon is a couple clicks away.</p>
+                                    <button onclick="goTo('builder')" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Start a Sermon</button>
+                                </div>
+                            ` : `
                             <div class="overflow-x-auto">
                                 <table class="w-full">
                                     <thead>
@@ -235,21 +501,17 @@
                                     </thead>
                                     <tbody>
                                         ${mockProjects.map(p => `
-                                            <tr class="border-b border-gray-200 hover:bg-gray-50">
+                                            <tr onclick="viewProject(${p.id})" class="border-b border-gray-200 hover:bg-gray-50 cursor-pointer">
                                                 <td class="px-6 py-4 text-sm text-gray-900 font-medium">${p.title}</td>
                                                 <td class="px-6 py-4 text-sm text-gray-600">${p.package}</td>
-                                                <td class="px-6 py-4">
-                                                    ${p.status === 'ready' ? 
-                                                        '<span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Ready</span>' :
-                                                        `<span class="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">Generating (${p.progress}%)</span>`
-                                                    }
-                                                </td>
+                                                <td class="px-6 py-4">${statusBadge(p)}</td>
                                                 <td class="px-6 py-4 text-sm text-gray-600">${p.date}</td>
                                             </tr>
                                         `).join('')}
                                     </tbody>
                                 </table>
                             </div>
+                            `}
                         </div>
                     </div>
                 </div>
@@ -270,20 +532,25 @@
                                 { credits: 100, price: 9, bonus: 0, best: false },
                                 { credits: 500, price: 39, bonus: 50, best: true },
                                 { credits: 2000, price: 129, bonus: 300, best: false }
-                            ].map((pkg, idx) => `
+                            ].map((pkg) => {
+                                const totalCredits = pkg.credits + pkg.bonus;
+                                const essentialsCount = Math.floor(totalCredits / packagePrices.essentials);
+                                const preacherCount = Math.floor(totalCredits / packagePrices.preacher);
+                                return `
                                 <div class="rounded-2xl border p-8 ${pkg.best ? 'bg-purple-50 border-purple-200 relative' : 'bg-white border-gray-200'}">
                                     ${pkg.best ? '<div class="absolute -top-3 left-8 bg-purple-600 text-white px-4 py-1 rounded-full text-sm font-semibold">Most Popular</div>' : ''}
                                     <h3 class="text-2xl font-bold text-gray-900 mb-2">${pkg.credits} Credits</h3>
                                     <p class="text-4xl font-bold text-purple-600 mb-2">$${pkg.price}</p>
-                                    ${pkg.bonus > 0 ? `<p class="text-sm text-green-600 font-semibold mb-6">+${pkg.bonus} bonus credits!</p>` : ''}
-                                    <button class="w-full py-3 rounded-lg font-semibold mb-6 ${pkg.best ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}">Buy Now</button>
+                                    ${pkg.bonus > 0 ? `<p class="text-sm text-green-600 font-semibold mb-2">+${pkg.bonus} bonus credits!</p>` : '<div class="mb-2"></div>'}
+                                    <p class="text-xs text-gray-500 mb-6">\u2248 ${essentialsCount} Essentials sermons or ${preacherCount} Preacher sermons</p>
+                                    <button onclick="buyCredits(${totalCredits})" class="w-full py-3 rounded-lg font-semibold mb-6 ${pkg.best ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}">Buy Now</button>
                                     <div class="space-y-2 text-sm text-gray-600">
                                         <p>• Credits never expire</p>
                                         <p>• Use across all packages</p>
                                         <p>• Refund within 30 days</p>
                                     </div>
                                 </div>
-                            `).join('')}
+                            `; }).join('')}
                         </div>
                     </div>
                 </div>
@@ -291,14 +558,14 @@
         }
 
         function BuilderPage() {
-            const getTotal = () => {
-                let total = packagePrices[app.sermonState.package];
-                app.sermonState.addons.forEach(addon => { total += addonPrices[addon] || 0; });
-                return total;
-            };
+            const total = getSermonTotal();
+            const lowCredits = app.user.credits < total;
+            const recommendedDurations = packageRecommendedDuration[app.sermonState.package] || [];
+            const currentInputType = inputTypes.find(t => t.key === app.sermonState.inputType) || inputTypes[0];
+            const recommendedAddons = packageRecommendedAddons[app.sermonState.package] || [];
 
             return `
-                <div class="pt-20 bg-gray-50 min-h-screen px-4 py-8">
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
                     <div class="max-w-6xl mx-auto">
                         <div class="grid lg:grid-cols-3 gap-8">
                             <div class="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-8">
@@ -320,11 +587,34 @@
                                 </div>
 
                                 <div class="mb-8 pb-8 border-b">
-                                    <div class="flex items-center gap-2 mb-4">
-                                        <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">2</div>
-                                        <h2 class="font-semibold text-gray-900">Starting Point</h2>
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">2</div>
+                                            <h2 class="font-semibold text-gray-900">Starting Point</h2>
+                                        </div>
+                                        <button type="button" onclick="fillExample()" class="text-sm text-purple-600 hover:underline cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Try an example</button>
                                     </div>
-                                    <textarea placeholder="Paste your content or notes here..." class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4"></textarea>
+                                    <div class="flex gap-2 flex-wrap mb-3">
+                                        ${inputTypes.map(t => `
+                                            <button onclick="app.sermonState.inputType='${t.key}'; render()" class="px-3 py-1.5 rounded-full text-sm border ${app.sermonState.inputType === t.key ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-700'}">${t.label}</button>
+                                        `).join('')}
+                                    </div>
+                                    <textarea oninput="updateInputContent(this.value)" placeholder="${currentInputType.placeholder}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4">${app.sermonState.inputContent}</textarea>
+
+                                    <div class="grid sm:grid-cols-2 gap-4 mt-4">
+                                        <div>
+                                            <label for="builder-translation" class="block text-xs font-semibold text-gray-600 mb-1">Bible Translation</label>
+                                            <select id="builder-translation" onchange="app.sermonState.translation=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${translations.map(t => `<option value="${t}" ${app.sermonState.translation === t ? 'selected' : ''}>${t}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="builder-audience" class="block text-xs font-semibold text-gray-600 mb-1">Audience / Occasion</label>
+                                            <select id="builder-audience" onchange="app.sermonState.audience=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${audiences.map(a => `<option value="${a}" ${app.sermonState.audience === a ? 'selected' : ''}>${a}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div class="mb-8 pb-8 border-b">
@@ -337,6 +627,9 @@
                                             <button onclick="app.sermonState.duration=${min}; render()" class="px-4 py-2 rounded-lg border ${app.sermonState.duration === min ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-900'}">${min} min</button>
                                         `).join('')}
                                     </div>
+                                    ${!recommendedDurations.includes(app.sermonState.duration) ? `
+                                        <p class="text-xs text-amber-600 mt-2">Heads up: ${app.sermonState.duration} min is longer than typical for the ${app.sermonState.package} package. Consider ${recommendedDurations.join(' or ')} min, or upgrade your package for more depth.</p>
+                                    ` : ''}
                                 </div>
 
                                 <div>
@@ -353,7 +646,8 @@
                                                     app.sermonState.addons.push('${addon}');
                                                 }
                                                 render();
-                                            " class="p-4 rounded-lg border-2 text-left ${app.sermonState.addons.includes(addon) ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
+                                            " class="p-4 rounded-lg border-2 text-left relative ${app.sermonState.addons.includes(addon) ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
+                                                ${recommendedAddons.includes(addon) ? '<span class="absolute top-2 right-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold">Recommended</span>' : ''}
                                                 <div class="font-semibold text-sm text-gray-900">${addon}</div>
                                                 <div class="text-xs text-purple-600 font-semibold">+${price} credits</div>
                                             </button>
@@ -371,6 +665,14 @@
                                         <span class="font-semibold text-gray-900 capitalize">${app.sermonState.package}</span>
                                     </div>
                                     <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Input</span>
+                                        <span class="font-semibold text-gray-900">${currentInputType.label}</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Translation</span>
+                                        <span class="font-semibold text-gray-900">${app.sermonState.translation}</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
                                         <span class="text-gray-600">Duration</span>
                                         <span class="font-semibold text-gray-900">${app.sermonState.duration} min</span>
                                     </div>
@@ -382,12 +684,14 @@
                                     ` : ''}
                                 </div>
 
-                                <div class="bg-purple-50 p-4 rounded-lg mb-6">
+                                <div class="bg-purple-50 p-4 rounded-lg mb-4">
                                     <p class="text-xs text-gray-600 mb-1">TOTAL CREDITS</p>
-                                    <p class="text-3xl font-bold text-purple-600">${getTotal()}</p>
+                                    <p class="text-3xl font-bold text-purple-600">${total}</p>
                                 </div>
 
-                                <button onclick="goTo('checkout')" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-2">Proceed to Checkout</button>
+                                ${lowCredits ? `<p class="text-xs text-red-600 mb-3">You have ${app.user.credits} credits \u2014 not enough for this selection. <button type="button" onclick="goTo('pricing')" class="underline cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Buy more</button>.</p>` : ''}
+
+                                <button onclick="goTo('checkout')" ${lowCredits ? 'disabled' : ''} class="w-full py-2 rounded-lg font-semibold mb-2 ${lowCredits ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'}">Proceed to Checkout</button>
                                 <p class="text-xs text-gray-600 text-center">One payment before generation</p>
                             </div>
                         </div>
@@ -418,21 +722,192 @@
                     <div class="max-w-3xl mx-auto">
                         <div class="bg-white rounded-2xl border border-gray-200 p-8">
                             <h2 class="text-2xl font-bold text-gray-900 mb-6">Account Settings</h2>
-                            <form class="space-y-6">
+                            <div class="space-y-6">
                                 <div>
-                                    <label class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
-                                    <input type="text" value="${app.user.name}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                    <label for="acct-name" class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
+                                    <input id="acct-name" type="text" value="${app.user.name}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
-                                    <input type="email" value="${app.user.email}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                    <label for="acct-email" class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                    <input id="acct-email" type="email" value="${app.user.email}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-semibold text-gray-900 mb-2">Church</label>
-                                    <input type="text" value="${app.user.church}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                    <label for="acct-church" class="block text-sm font-semibold text-gray-900 mb-2">Church</label>
+                                    <input id="acct-church" type="text" value="${app.user.church}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                                 </div>
-                                <button type="button" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Save Changes</button>
-                            </form>
+                                <button type="button" onclick="saveAccount()" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Save Changes</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function CheckoutPage() {
+            const total = getSermonTotal();
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-4 py-8">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-6">Checkout</h1>
+                        <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-gray-600 mb-2">Ready to create your sermon?</p>
+                            <p class="font-semibold text-gray-900 mb-1 capitalize">${app.sermonState.package} Package</p>
+                            <p class="text-sm text-gray-600">${total} credits \u2022 you have ${app.user.credits}</p>
+                        </div>
+                        <div class="border border-purple-200 bg-purple-50 rounded-lg p-4 mb-6">
+                            <p class="text-xs text-purple-700 font-semibold uppercase tracking-wide mb-1">Sermon will be emailed to</p>
+                            <p class="text-gray-900 font-semibold mb-2">${app.user.email}</p>
+                            <button type="button" onclick="goTo('account')" class="text-xs text-purple-600 hover:underline cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Wrong address? Update it on your Account page</button>
+                        </div>
+                        <button onclick="completeCheckout()" class="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 mb-4">Complete Purchase with Stripe</button>
+                        <p class="text-xs text-gray-600 text-center">(Stripe integration will be connected to real payment processing)</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function LegalDisclaimerBanner() {
+            return `
+                <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 mb-8">
+                    This is a general starting template, not legal advice, and hasn't been reviewed by an attorney. Have a lawyer review it before relying on it for real transactions.
+                </div>
+            `;
+        }
+
+        function TermsPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-3xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-4">Terms of Service</h1>
+                        <p class="text-gray-500 text-sm mb-8">Last updated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        ${LegalDisclaimerBanner()}
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8 space-y-6 text-gray-700 leading-relaxed">
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">1. Acceptance of Terms</h2>
+                                <p>By creating an account or using GraceTools, you agree to these Terms of Service. If you don't agree, please don't use the service.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">2. What GraceTools Is</h2>
+                                <p>GraceTools is an AI-assisted sermon preparation tool. It generates sermon outlines, commentary, and related content based on the Bible passage, topic, notes, or other input you provide, informed by the theological framework you select.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">3. AI-Generated Content</h2>
+                                <p>Content is generated by an AI model and is a starting point for your own study and preparation, not a finished, authoritative, or infallible product. You are responsible for reviewing all generated content for theological accuracy, scriptural faithfulness, and appropriateness before using it in any setting. GraceTools does not guarantee the accuracy, completeness, or doctrinal correctness of generated content.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">4. Credits and Payment</h2>
+                                <p>GraceTools operates on a credit system. Credits are purchased in advance, do not expire, and are consumed when you generate content. Except where required by law or explicitly stated in a promotion, credit purchases are final. If a generation fails due to a system error, credits used for that attempt are automatically refunded to your account.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">5. Your Account</h2>
+                                <p>You're responsible for the accuracy of the information you provide and for keeping your account details up to date. You agree not to use GraceTools for any unlawful purpose or to attempt to disrupt, reverse-engineer, or gain unauthorized access to the service.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">6. Ownership of Generated Content</h2>
+                                <p>You own the content generated for you through GraceTools and are free to use, edit, and distribute it, including in sermons, publications, and other ministry materials.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">7. Limitation of Liability</h2>
+                                <p>GraceTools is provided "as is" without warranties of any kind. To the fullest extent permitted by law, GraceTools and its operators are not liable for any indirect, incidental, or consequential damages arising from your use of the service, including reliance on AI-generated content.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">8. Termination</h2>
+                                <p>You may stop using GraceTools at any time. We may suspend or terminate accounts that violate these terms or misuse the service.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">9. Changes to These Terms</h2>
+                                <p>We may update these terms from time to time. Continued use of GraceTools after changes are posted means you accept the updated terms.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">10. Contact</h2>
+                                <p>Questions about these terms? Reach out to <a class="text-purple-600 hover:underline" href="mailto:support@gracetools.com">support@gracetools.com</a>.</p>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function PrivacyPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-3xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-4">Privacy Policy</h1>
+                        <p class="text-gray-500 text-sm mb-8">Last updated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        ${LegalDisclaimerBanner()}
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8 space-y-6 text-gray-700 leading-relaxed">
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">1. What We Collect</h2>
+                                <p>When you create an account, we collect your name, email address, and church name. When you build a sermon, we collect the content you provide (Bible passages, topics, notes, or files) along with your settings (translation, audience, package selection).</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">2. How We Use It</h2>
+                                <p>We use your information to create your account, generate sermon content on your behalf, email you the results, process credit purchases, and send account-related notifications (like receipts or generation status).</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">3. Third-Party Services</h2>
+                                <p>To provide GraceTools, we share data with the following services as needed to operate the product:</p>
+                                <ul class="list-disc pl-6 mt-2 space-y-1">
+                                    <li><strong>Google Gemini</strong> — processes your input to generate sermon content</li>
+                                    <li><strong>Supabase</strong> — stores your account and project data</li>
+                                    <li><strong>Google Gmail</strong> — sends your generated sermons and account emails</li>
+                                    <li><strong>Stripe</strong> — processes credit purchases (we never see or store your card details)</li>
+                                    <li><strong>Groq</strong> — transcribes audio you upload, if you use that feature</li>
+                                </ul>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">4. Data Retention</h2>
+                                <p>We keep your account and project data as long as your account is active. Failed sermon generations are automatically deleted after 30 days; completed projects are archived after 90 days of inactivity but remain accessible to you.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">5. Your Rights</h2>
+                                <p>You can review and update your account information at any time from your Account page. To request deletion of your account and associated data, contact us at the email below.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">6. Cookies & Local Storage</h2>
+                                <p>GraceTools uses your browser's local storage to keep you signed in and remember your preferences. We don't use third-party advertising trackers.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">7. Security</h2>
+                                <p>We take reasonable measures to protect your data, but no online service can guarantee perfect security. Please use a strong, unique password for your account.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">8. Contact</h2>
+                                <p>Questions about your data or this policy? Reach out to <a class="text-purple-600 hover:underline" href="mailto:support@gracetools.com">support@gracetools.com</a>.</p>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function LegalPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-3xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-4">Legal Notices</h1>
+                        ${LegalDisclaimerBanner()}
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8 space-y-6 text-gray-700 leading-relaxed">
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">Theological Content Disclaimer</h2>
+                                <p>GraceTools generates sermon content using artificial intelligence, informed by the Mid-Acts Dispensational, Grace theology framework. Generated content reflects that framework but is not a substitute for personal study, prayer, or the guidance of the Holy Spirit. Every user is responsible for reviewing generated content against Scripture before teaching or preaching it.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">AI-Generated Content</h2>
+                                <p>Some or all content produced through GraceTools is generated by artificial intelligence (Google Gemini). AI-generated content can contain errors, including factual, scriptural, or theological inaccuracies. Always review generated material carefully.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">Intellectual Property</h2>
+                                <p>The GraceTools name, logo, and platform are the property of their owner. Content you generate through the platform is yours to use as described in our <a class="text-purple-600 hover:underline cursor-pointer" onclick="goTo('terms')">Terms of Service</a>.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">Related Documents</h2>
+                                <p>See our <a class="text-purple-600 hover:underline cursor-pointer" onclick="goTo('terms')">Terms of Service</a> and <a class="text-purple-600 hover:underline cursor-pointer" onclick="goTo('privacy')">Privacy Policy</a> for more detail on how the service and your data are handled.</p>
+                            </section>
+                            <section>
+                                <h2 class="text-xl font-bold text-gray-900 mb-2">Contact</h2>
+                                <p>For any legal questions, reach out to <a class="text-purple-600 hover:underline" href="mailto:support@gracetools.com">support@gracetools.com</a>.</p>
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -446,23 +921,27 @@
             if (app.currentPage === 'home') content = HomePage();
             else if (app.currentPage === 'signup') content = app.isLoggedIn ? '' : SignupPage();
             else if (app.currentPage === 'login') content = app.isLoggedIn ? '' : LoginPage();
+            else if (app.currentPage === 'forgot-password') content = ForgotPasswordPage();
             else if (app.currentPage === 'dashboard') content = app.isLoggedIn ? DashboardPage() : HomePage();
             else if (app.currentPage === 'pricing') content = PricingPage();
             else if (app.currentPage === 'builder') content = app.isLoggedIn ? BuilderPage() : SignupPage();
             else if (app.currentPage === 'about') content = PricingPageComplete();
+            else if (app.currentPage === 'terms') content = TermsPage();
+            else if (app.currentPage === 'privacy') content = PrivacyPage();
+            else if (app.currentPage === 'legal') content = LegalPage();
             else if (app.currentPage === 'account') content = app.isLoggedIn ? AccountPage() : HomePage();
-            else if (app.currentPage === 'how-it-works') content = `<div class="pt-20 min-h-screen px-6 py-12 bg-gray-50"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">How It Works</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4">1. Choose a package (Essentials, Preacher, or Master Sermon)</p><p class="text-gray-600 mb-4">2. Provide your input (passage, topic, notes, or YouTube link)</p><p class="text-gray-600 mb-4">3. Configure your settings (theology, translation, audience, length)</p><p class="text-gray-600 mb-4">4. Add optional features (discussion guides, social posts, etc.)</p><p class="text-gray-600 mb-4">5. Checkout with credits (they never expire)</p><p class="text-gray-600">6. AI generates your complete sermon in 5-10 minutes</p></div></div></div>`;
-            else if (app.currentPage === 'support') content = `<div class="pt-20 min-h-screen px-6 py-12 bg-gray-50"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">Support</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4"><strong>Email:</strong> support@gracetools.com</p><p class="text-gray-600 mb-4"><strong>Response Time:</strong> Within 24 hours</p><p class="text-gray-600">Have a question? We're here to help!</p></div></div></div>`;
-            else if (app.currentPage === 'checkout') content = `<div class="pt-20 min-h-screen bg-gray-50 px-4 py-8"><div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8"><h1 class="text-2xl font-bold text-gray-900 mb-6">Checkout</h1><div class="bg-gray-50 rounded-lg p-4 mb-6"><p class="text-sm text-gray-600 mb-2">Ready to create your sermon?</p><p class="font-semibold text-gray-900 mb-4">${app.sermonState.package} Package</p><button class="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 mb-4">Complete Purchase with Stripe</button><p class="text-xs text-gray-600 text-center">(Stripe integration will be connected to real payment processing)</p></div></div></div>`;
+            else if (app.currentPage === 'checkout') content = app.isLoggedIn ? CheckoutPage() : HomePage();
+            else if (app.currentPage === 'how-it-works') content = `<div class="pt-20 min-h-screen bg-gray-50 px-6 py-12"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">How It Works</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4">1. Choose a package (Essentials, Preacher, or Master Sermon)</p><p class="text-gray-600 mb-4">2. Provide your input (passage, topic, notes, or YouTube link)</p><p class="text-gray-600 mb-4">3. Configure your settings (theology, translation, audience, length)</p><p class="text-gray-600 mb-4">4. Add optional features (discussion guides, social posts, etc.)</p><p class="text-gray-600 mb-4">5. Checkout with credits (they never expire)</p><p class="text-gray-600">6. AI generates your complete sermon in 5-10 minutes</p></div></div></div>`;
+            else if (app.currentPage === 'support') content = `<div class="pt-20 min-h-screen bg-gray-50 px-6 py-12"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">Support</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4"><strong>Email:</strong> support@gracetools.com</p><p class="text-gray-600 mb-4"><strong>Response Time:</strong> Within 24 hours</p><p class="text-gray-600">Have a question? We're here to help!</p></div></div></div>`;
 
-            document.getElementById('app').innerHTML = Header() + content + `
+            document.getElementById('app').innerHTML = Header() + FlashBanner() + content + `
                 <footer class="bg-white border-t border-gray-200 px-6 py-8 mt-12">
                     <div class="max-w-7xl mx-auto text-center text-sm text-gray-600">
                         <div class="mb-4 space-x-4">
-                            <a href="#" class="hover:text-gray-900">Legal</a>
-                            <a href="#" class="hover:text-gray-900">Terms</a>
-                            <a href="#" class="hover:text-gray-900">Privacy</a>
-                            <a href="#" class="hover:text-gray-900">Support</a>
+                            <button type="button" onclick="goTo('legal')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Legal</button>
+                            <button type="button" onclick="goTo('terms')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Terms</button>
+                            <button type="button" onclick="goTo('privacy')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Privacy</button>
+                            <button type="button" onclick="goTo('support')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
                         </div>
                         <p>© 2024 GraceTools. Built for pastors.</p>
                     </div>
