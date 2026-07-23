@@ -1,0 +1,297 @@
+{
+  "name": "GraceTools - Add-on Generation Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-addons",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "addon-0001",
+      "name": "Webhook - Receive Add-on Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nif (!body.user_email || !body.sermon_json || !body.addons || body.addons.length === 0) {\n  throw new Error('Missing required fields: user_email, sermon_json, addons');\n}\nreturn [{ json: {\n  user_email: body.user_email,\n  user_id: body.user_id,\n  project_id: body.project_id,\n  sermon_json: body.sermon_json,\n  addons: body.addons,\n  doctrinal_position: body.doctrinal_position || 'Mid-Acts Dispensational',\n  bible_translation: body.bible_translation || 'KJV',\n  audience: body.audience || 'Sunday Morning - Mixed'\n}}];"
+      },
+      "id": "addon-0002",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "addons",
+        "options": {}
+      },
+      "id": "addon-0003",
+      "name": "Split Add-ons Into Individual Items",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "c1", "leftValue": "={{ $json.addons }}", "rightValue": "Youth Version", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "addon-0004",
+      "name": "Is Youth Version?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": { "systemMessage": "=You are a children's ministry expert writing in a Mid-Acts Dispensational framework using the {{ $('Validate Input').item.json.bible_translation }}.", "temperature": 0.7, "maxOutputTokens": 2000 },
+        "messages": { "values": [{ "content": "=Using this sermon as source material:\n{{ JSON.stringify($('Validate Input').item.json.sermon_json) }}\n\nRewrite this as a Youth Version (ages 13-18). Return JSON only:\n{\n  \"addon_type\": \"Youth Version\",\n  \"title\": \"Youth-friendly title\",\n  \"big_idea\": \"Simple one-sentence truth\",\n  \"main_points\": [{\"point\": \"title\", \"explanation\": \"teen-friendly explanation\", \"scripture\": \"verse\", \"application\": \"practical teen application\"}],\n  \"opening_hook\": \"Engaging story or question for teens\",\n  \"discussion_questions\": [\"Question 1\", \"Question 2\", \"Question 3\"],\n  \"key_verse\": \"Most memorable verse\",\n  \"closing_challenge\": \"One practical challenge for the week\"\n}\nReturn ONLY the JSON." }] }
+      },
+      "id": "addon-0005",
+      "name": "Generate Youth Version",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1120, 100],
+      "credentials": { "googleGeminiApi": { "name": "YOUR_GEMINI_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "c2", "leftValue": "={{ $json.addons }}", "rightValue": "Small Group Guide", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "addon-0006",
+      "name": "Is Small Group Guide?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 360]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": { "systemMessage": "=You are a Bible study curriculum writer in a Mid-Acts Dispensational framework using the {{ $('Validate Input').item.json.bible_translation }}.", "temperature": 0.7, "maxOutputTokens": 2500 },
+        "messages": { "values": [{ "content": "=Using this sermon as source material:\n{{ JSON.stringify($('Validate Input').item.json.sermon_json) }}\n\nCreate a Small Group Study Guide. Return JSON only:\n{\n  \"addon_type\": \"Small Group Guide\",\n  \"title\": \"Study guide title\",\n  \"overview\": \"2-3 sentence group session overview\",\n  \"ice_breaker\": \"Fun opening question (not Bible related)\",\n  \"scripture_reading\": \"Passage to read aloud together\",\n  \"discussion_questions\": [\n    { \"question\": \"Observation question\", \"type\": \"observation\" },\n    { \"question\": \"Interpretation question\", \"type\": \"interpretation\" },\n    { \"question\": \"Application question\", \"type\": \"application\" },\n    { \"question\": \"Personal reflection\", \"type\": \"reflection\" },\n    { \"question\": \"Group challenge\", \"type\": \"challenge\" }\n  ],\n  \"key_takeaways\": [\"Takeaway 1\", \"Takeaway 2\", \"Takeaway 3\"],\n  \"prayer_focus\": \"Suggested group prayer focus\",\n  \"action_step\": \"One practical thing the group commits to this week\",\n  \"next_week_preview\": \"Optional teaser for next session\"\n}\nReturn ONLY the JSON." }] }
+      },
+      "id": "addon-0007",
+      "name": "Generate Small Group Guide",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "credentials": { "googleGeminiApi": { "name": "YOUR_GEMINI_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "c3", "leftValue": "={{ $json.addons }}", "rightValue": "Blog Article", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "addon-0008",
+      "name": "Is Blog Article?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 520]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": { "systemMessage": "=You are a Christian blog writer in a Mid-Acts Dispensational framework using the {{ $('Validate Input').item.json.bible_translation }}. Write for general Christian audiences searching online.", "temperature": 0.7, "maxOutputTokens": 2000 },
+        "messages": { "values": [{ "content": "=Using this sermon as source material:\n{{ JSON.stringify($('Validate Input').item.json.sermon_json) }}\n\nWrite a blog article (600-800 words). Return JSON only:\n{\n  \"addon_type\": \"Blog Article\",\n  \"title\": \"SEO-friendly blog title\",\n  \"meta_description\": \"150-character SEO meta description\",\n  \"introduction\": \"Engaging opening paragraph\",\n  \"body_sections\": [\n    { \"heading\": \"Section heading\", \"content\": \"2-3 paragraphs\" }\n  ],\n  \"conclusion\": \"Closing paragraph with call to action\",\n  \"suggested_tags\": [\"tag1\", \"tag2\", \"tag3\", \"tag4\"],\n  \"word_count\": 700\n}\nReturn ONLY the JSON." }] }
+      },
+      "id": "addon-0009",
+      "name": "Generate Blog Article",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1120, 500],
+      "credentials": { "googleGeminiApi": { "name": "YOUR_GEMINI_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "c4", "leftValue": "={{ $json.addons }}", "rightValue": "Social Posts", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "addon-0010",
+      "name": "Is Social Posts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 680]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": { "systemMessage": "You are a Christian social media strategist. Write engaging, faith-based content that is shareable and doctrinally sound.", "temperature": 0.8, "maxOutputTokens": 1500 },
+        "messages": { "values": [{ "content": "=Using this sermon:\n{{ JSON.stringify($('Validate Input').item.json.sermon_json) }}\n\nCreate a full social media content pack. Return JSON only:\n{\n  \"addon_type\": \"Social Posts\",\n  \"facebook\": {\n    \"post\": \"Full Facebook post (150-200 words, warm and conversational)\",\n    \"hashtags\": [\"#hashtag1\", \"#hashtag2\", \"#hashtag3\"]\n  },\n  \"instagram\": {\n    \"caption\": \"Instagram caption (100-150 words, visual storytelling)\",\n    \"hashtags\": [\"#hashtag1\", \"#hashtag2\", \"#hashtag3\", \"#hashtag4\", \"#hashtag5\"]\n  },\n  \"x_twitter\": [\n    \"Tweet 1 (under 280 chars)\",\n    \"Tweet 2 (under 280 chars)\",\n    \"Tweet 3 (under 280 chars)\"\n  ],\n  \"quote_graphic\": \"Short powerful quote from sermon for a graphic (under 20 words)\",\n  \"key_verse_graphic\": \"Scripture verse formatted for a graphic\"\n}\nReturn ONLY the JSON." }] }
+      },
+      "id": "addon-0011",
+      "name": "Generate Social Posts",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1120, 700],
+      "credentials": { "googleGeminiApi": { "name": "YOUR_GEMINI_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "c5", "leftValue": "={{ $json.addons }}", "rightValue": "Discussion Questions", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "addon-0012",
+      "name": "Is Discussion Questions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 840]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": { "systemMessage": "You are a Bible study discussion facilitator in a Mid-Acts Dispensational framework.", "temperature": 0.7, "maxOutputTokens": 1000 },
+        "messages": { "values": [{ "content": "=Using this sermon:\n{{ JSON.stringify($('Validate Input').item.json.sermon_json) }}\n\nCreate 10 discussion questions at varying depths. Return JSON only:\n{\n  \"addon_type\": \"Discussion Questions\",\n  \"title\": \"Discussion title\",\n  \"questions\": [\n    { \"question\": \"Text\", \"type\": \"observation\", \"depth\": \"surface\" },\n    { \"question\": \"Text\", \"type\": \"interpretation\", \"depth\": \"medium\" },\n    { \"question\": \"Text\", \"type\": \"application\", \"depth\": \"deep\" }\n  ]\n}\nReturn ONLY the JSON." }] }
+      },
+      "id": "addon-0013",
+      "name": "Generate Discussion Questions",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1120, 860],
+      "credentials": { "googleGeminiApi": { "name": "YOUR_GEMINI_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "c6", "leftValue": "={{ $json.addons }}", "rightValue": "Printable Handouts", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "addon-0014",
+      "name": "Is Printable Handout?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 1000]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": { "systemMessage": "You are a church communications specialist creating congregation handouts.", "temperature": 0.6, "maxOutputTokens": 1000 },
+        "messages": { "values": [{ "content": "=Using this sermon:\n{{ JSON.stringify($('Validate Input').item.json.sermon_json) }}\n\nCreate a fill-in-the-blank sermon notes handout. Return JSON only:\n{\n  \"addon_type\": \"Printable Handout\",\n  \"title\": \"Sermon title\",\n  \"date_placeholder\": \"Date: _______________\",\n  \"scripture\": \"Primary reference\",\n  \"big_idea_blank\": \"Today I will learn that ______________________________.\",\n  \"fill_in_sections\": [\n    { \"heading\": \"Point 1 title\", \"blanks\": [\"Key word: ________\", \"Application: ________\"] }\n  ],\n  \"key_verse\": \"Full verse text\",\n  \"takeaway_blank\": \"This week I will ______________________________.\",\n  \"notes_lines\": 8\n}\nReturn ONLY the JSON." }] }
+      },
+      "id": "addon-0015",
+      "name": "Generate Printable Handout",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1120, 1020],
+      "credentials": { "googleGeminiApi": { "name": "YOUR_GEMINI_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect all generated add-on results and clean up JSON\nconst results = [];\nconst nodeNames = [\n  'Generate Youth Version',\n  'Generate Small Group Guide',\n  'Generate Blog Article',\n  'Generate Social Posts',\n  'Generate Discussion Questions',\n  'Generate Printable Handout'\n];\n\nfor (const nodeName of nodeNames) {\n  try {\n    const raw = $(nodeName).item.json.text || $(nodeName).item.json.content || '';\n    const cleaned = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n    const parsed = JSON.parse(cleaned);\n    results.push(parsed);\n  } catch(e) {}\n}\n\nconst validated = $('Validate Input').item.json;\n\nreturn [{\n  json: {\n    user_email: validated.user_email,\n    project_id: validated.project_id,\n    addons_generated: results,\n    generated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "addon-0016",
+      "name": "Collect All Add-on Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 560]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst addons = data.addons_generated;\n\nlet sectionsHtml = addons.map(addon => {\n  let html = `<div style=\"margin-bottom:32px; padding:24px; background:#FAFAFA; border-radius:12px; border:1px solid #E0E0E0;\">`;\n  html += `<h2 style=\"color:#534AB7; margin:0 0 16px; font-size:18px;\">${addon.addon_type || addon.title}</h2>`;\n\n  if (addon.addon_type === 'Social Posts') {\n    html += `<h4 style=\"color:#1a1a1a;\">Facebook</h4><p style=\"color:#444;\">${addon.facebook?.post || ''}</p>`;\n    html += `<h4 style=\"color:#1a1a1a;\">Instagram</h4><p style=\"color:#444;\">${addon.instagram?.caption || ''}</p>`;\n    html += `<h4 style=\"color:#1a1a1a;\">X / Twitter</h4><ul>${(addon.x_twitter||[]).map(t=>`<li style=\"color:#444;\">${t}</li>`).join('')}</ul>`;\n    if (addon.quote_graphic) html += `<p><strong>Quote graphic:</strong> ${addon.quote_graphic}</p>`;\n  } else if (addon.addon_type === 'Blog Article') {\n    html += `<p style=\"color:#666; font-style:italic;\">${addon.meta_description || ''}</p>`;\n    html += `<p style=\"color:#444;\">${addon.introduction || ''}</p>`;\n    (addon.body_sections || []).forEach(s => {\n      html += `<h4 style=\"color:#1a1a1a;\">${s.heading}</h4><p style=\"color:#444;\">${s.content}</p>`;\n    });\n    html += `<p style=\"color:#444;\">${addon.conclusion || ''}</p>`;\n  } else if (addon.discussion_questions || addon.questions) {\n    const qs = addon.discussion_questions || addon.questions || [];\n    html += `<ol>${qs.map(q => `<li style=\"color:#444; margin-bottom:8px;\">${typeof q === 'object' ? q.question : q}</li>`).join('')}</ol>`;\n  } else if (addon.main_points) {\n    (addon.main_points || []).forEach((pt, i) => {\n      html += `<p><strong>${i+1}. ${pt.point}</strong></p><p style=\"color:#444;\">${pt.explanation}</p>`;\n      if (pt.application) html += `<p style=\"color:#666;\"><em>Application: ${pt.application}</em></p>`;\n    });\n  } else if (addon.fill_in_sections) {\n    (addon.fill_in_sections || []).forEach(s => {\n      html += `<p><strong>${s.heading}</strong></p>`;\n      (s.blanks||[]).forEach(b => html += `<p style=\"color:#444;\">${b}</p>`);\n    });\n    if (addon.takeaway_blank) html += `<p style=\"color:#7F77DD; font-weight:600;\">${addon.takeaway_blank}</p>`;\n  }\n  html += `</div>`;\n  return html;\n}).join('');\n\nconst emailHtml = `\n<div style=\"font-family:Georgia,serif; max-width:700px; margin:0 auto; color:#2C2C2A;\">\n  <div style=\"background:#7F77DD; padding:24px 32px; border-radius:12px 12px 0 0;\">\n    <h1 style=\"color:white; margin:0;\">✚ GraceTools</h1>\n    <p style=\"color:rgba(255,255,255,0.8); margin:8px 0 0;\">Your add-ons are ready</p>\n  </div>\n  <div style=\"background:white; padding:32px; border:1px solid #E0E0E0;\">\n    <p style=\"color:#444; margin-bottom:24px;\">Here are your requested add-ons for this sermon. Everything below is yours to copy, edit, and use freely.</p>\n    ${sectionsHtml}\n  </div>\n  <div style=\"background:#F5F3FF; padding:16px 32px; border-radius:0 0 12px 12px; text-align:center;\">\n    <p style=\"color:#888; font-size:12px; margin:0;\">© GraceTools | support@gracetools.com</p>\n  </div>\n</div>`;\n\nreturn [{ json: { ...data, email_html: emailHtml } }];"
+      },
+      "id": "addon-0017",
+      "name": "Build Add-ons Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 560]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.user_email }}",
+        "subject": "Your GraceTools Add-ons Are Ready",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": { "replyTo": "support@gracetools.com" }
+      },
+      "id": "addon-0018",
+      "name": "Send Add-ons Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1780, 560],
+      "credentials": { "gmailOAuth2": { "name": "YOUR_GMAIL_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"addons_generated\": {{ $('Collect All Add-on Results').item.json.addons_generated.length }} }",
+        "options": {}
+      },
+      "id": "addon-0019",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 560]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Add-on Request": { "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]] },
+    "Validate Input": { "main": [[{ "node": "Split Add-ons Into Individual Items", "type": "main", "index": 0 }]] },
+    "Split Add-ons Into Individual Items": {
+      "main": [[
+        { "node": "Is Youth Version?", "type": "main", "index": 0 },
+        { "node": "Is Small Group Guide?", "type": "main", "index": 0 },
+        { "node": "Is Blog Article?", "type": "main", "index": 0 },
+        { "node": "Is Social Posts?", "type": "main", "index": 0 },
+        { "node": "Is Discussion Questions?", "type": "main", "index": 0 },
+        { "node": "Is Printable Handout?", "type": "main", "index": 0 }
+      ]]
+    },
+    "Is Youth Version?": { "main": [[{ "node": "Generate Youth Version", "type": "main", "index": 0 }], []] },
+    "Is Small Group Guide?": { "main": [[{ "node": "Generate Small Group Guide", "type": "main", "index": 0 }], []] },
+    "Is Blog Article?": { "main": [[{ "node": "Generate Blog Article", "type": "main", "index": 0 }], []] },
+    "Is Social Posts?": { "main": [[{ "node": "Generate Social Posts", "type": "main", "index": 0 }], []] },
+    "Is Discussion Questions?": { "main": [[{ "node": "Generate Discussion Questions", "type": "main", "index": 0 }], []] },
+    "Is Printable Handout?": { "main": [[{ "node": "Generate Printable Handout", "type": "main", "index": 0 }], []] },
+    "Generate Youth Version": { "main": [[{ "node": "Collect All Add-on Results", "type": "main", "index": 0 }]] },
+    "Generate Small Group Guide": { "main": [[{ "node": "Collect All Add-on Results", "type": "main", "index": 0 }]] },
+    "Generate Blog Article": { "main": [[{ "node": "Collect All Add-on Results", "type": "main", "index": 0 }]] },
+    "Generate Social Posts": { "main": [[{ "node": "Collect All Add-on Results", "type": "main", "index": 0 }]] },
+    "Generate Discussion Questions": { "main": [[{ "node": "Collect All Add-on Results", "type": "main", "index": 0 }]] },
+    "Generate Printable Handout": { "main": [[{ "node": "Collect All Add-on Results", "type": "main", "index": 0 }]] },
+    "Collect All Add-on Results": { "main": [[{ "node": "Build Add-ons Email", "type": "main", "index": 0 }]] },
+    "Build Add-ons Email": { "main": [[{ "node": "Send Add-ons Email", "type": "main", "index": 0 }]] },
+    "Send Add-ons Email": { "main": [[{ "node": "Respond Success", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

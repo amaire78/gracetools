@@ -1,0 +1,72 @@
+{
+  "name": "GraceTools - Admin Daily Summary Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "triggerAtHour": 7, "triggerAtMinute": 0 }] }
+      },
+      "id": "admin-0001",
+      "name": "Schedule - 7am Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_daily_stats",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {}
+      },
+      "id": "admin-0002",
+      "name": "Fetch Daily Stats from Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $input.first().json;\nconst today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });\n\nconst html = `\n<div style=\"font-family:Georgia,serif; max-width:650px; margin:0 auto;\">\n  <div style=\"background:#2C2C2A; padding:24px 32px; border-radius:12px 12px 0 0;\">\n    <h1 style=\"color:white; margin:0; font-size:20px;\">✚ GraceTools Admin</h1>\n    <p style=\"color:rgba(255,255,255,0.6); margin:6px 0 0; font-size:14px;\">Daily Summary — ${today}</p>\n  </div>\n  <div style=\"background:white; padding:32px; border:1px solid #E0E0E0;\">\n\n    <h2 style=\"color:#1a1a1a; margin-bottom:20px; font-size:18px;\">Yesterday's Numbers</h2>\n\n    <div style=\"display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:28px;\">\n      <div style=\"background:#F5F3FF; border-radius:10px; padding:16px; text-align:center;\">\n        <p style=\"color:#7F77DD; font-size:11px; margin:0 0 6px; text-transform:uppercase; letter-spacing:1px;\">New Signups</p>\n        <p style=\"font-size:36px; font-weight:700; color:#534AB7; margin:0;\">${stats.new_users_yesterday || 0}</p>\n      </div>\n      <div style=\"background:#E1F5EE; border-radius:10px; padding:16px; text-align:center;\">\n        <p style=\"color:#0F6E56; font-size:11px; margin:0 0 6px; text-transform:uppercase; letter-spacing:1px;\">Revenue</p>\n        <p style=\"font-size:36px; font-weight:700; color:#085041; margin:0;\">$${stats.revenue_yesterday || '0.00'}</p>\n      </div>\n      <div style=\"background:#FAFAFA; border-radius:10px; padding:16px; text-align:center;\">\n        <p style=\"color:#666; font-size:11px; margin:0 0 6px; text-transform:uppercase; letter-spacing:1px;\">Sermons Built</p>\n        <p style=\"font-size:36px; font-weight:700; color:#1a1a1a; margin:0;\">${stats.projects_yesterday || 0}</p>\n      </div>\n    </div>\n\n    <h3 style=\"color:#1a1a1a; margin-bottom:12px;\">Running Totals</h3>\n    <table style=\"width:100%; font-size:14px; border-collapse:collapse; margin-bottom:24px;\">\n      <tr style=\"background:#FAFAFA;\">\n        <td style=\"padding:10px 14px; color:#888;\">Total Users</td>\n        <td style=\"padding:10px 14px; font-weight:600; text-align:right;\">${stats.total_users || 0}</td>\n      </tr>\n      <tr>\n        <td style=\"padding:10px 14px; color:#888;\">Total Revenue</td>\n        <td style=\"padding:10px 14px; font-weight:600; text-align:right; color:#0F6E56;\">$${stats.total_revenue || '0.00'}</td>\n      </tr>\n      <tr style=\"background:#FAFAFA;\">\n        <td style=\"padding:10px 14px; color:#888;\">Total Sermons Generated</td>\n        <td style=\"padding:10px 14px; font-weight:600; text-align:right;\">${stats.total_projects || 0}</td>\n      </tr>\n      <tr>\n        <td style=\"padding:10px 14px; color:#888;\">Failed Generations</td>\n        <td style=\"padding:10px 14px; font-weight:600; text-align:right; color:${(stats.failed_yesterday || 0) > 0 ? '#E24B4A' : '#1a1a1a'}\">${stats.failed_yesterday || 0}</td>\n      </tr>\n      <tr style=\"background:#FAFAFA;\">\n        <td style=\"padding:10px 14px; color:#888;\">Credits Sold Yesterday</td>\n        <td style=\"padding:10px 14px; font-weight:600; text-align:right;\">${stats.credits_sold_yesterday || 0}</td>\n      </tr>\n    </table>\n\n    ${(stats.failed_yesterday || 0) > 0 ? `\n    <div style=\"background:#FCEBEB; border:1px solid #F09595; border-radius:8px; padding:14px 18px; margin-bottom:20px;\">\n      <p style=\"color:#A32D2D; font-weight:700; margin:0 0 4px;\">⚠ ${stats.failed_yesterday} generation failures yesterday</p>\n      <p style=\"color:#791F1F; font-size:13px; margin:0;\">Check the n8n execution log and Supabase projects table for details.</p>\n    </div>` : ''}\n\n    <div style=\"background:#E1F5EE; border-radius:8px; padding:14px 18px;\">\n      <p style=\"color:#085041; font-size:13px; margin:0;\">💡 Most popular package: <strong>${stats.top_package || 'Preacher'}</strong></p>\n    </div>\n  </div>\n  <div style=\"background:#2C2C2A; padding:14px 32px; border-radius:0 0 12px 12px; text-align:center;\">\n    <p style=\"color:rgba(255,255,255,0.4); font-size:12px; margin:0;\">GraceTools Admin | Sent daily at 7am</p>\n  </div>\n</div>`;\n\nreturn [{ json: { email_html: html, stats } }];"
+      },
+      "id": "admin-0003",
+      "name": "Build Admin Summary Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "andrew.maire@gmail.com",
+        "subject": "=GraceTools Daily Summary — {{ new Date().toLocaleDateString('en-US', {month:'short', day:'numeric'}) }}",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": {}
+      },
+      "id": "admin-0004",
+      "name": "Send Summary to Andrew",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [900, 300],
+      "credentials": { "gmailOAuth2": { "name": "YOUR_GMAIL_CREDENTIAL_NAME" } }
+    }
+  ],
+  "connections": {
+    "Schedule - 7am Daily": { "main": [[{ "node": "Fetch Daily Stats from Supabase", "type": "main", "index": 0 }]] },
+    "Fetch Daily Stats from Supabase": { "main": [[{ "node": "Build Admin Summary Email", "type": "main", "index": 0 }]] },
+    "Build Admin Summary Email": { "main": [[{ "node": "Send Summary to Andrew", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

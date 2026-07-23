@@ -1,0 +1,112 @@
+{
+  "name": "GraceTools - Scheduled Cleanup Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "triggerAtHour": 2, "triggerAtMinute": 0 }] }
+      },
+      "id": "clean-0001",
+      "name": "Schedule - 2am Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?status=eq.failed&created_at=lt.{{ new Date(Date.now() - 30*24*60*60*1000).toISOString() }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "clean-0002",
+      "name": "Delete Failed Projects Older Than 30 Days",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?status=eq.ready&completed_at=lt.{{ new Date(Date.now() - 90*24*60*60*1000).toISOString() }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"status\": \"archived\" }",
+        "options": {}
+      },
+      "id": "clean-0003",
+      "name": "Archive Projects Older Than 90 Days",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/cleanup_expired_sessions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {}
+      },
+      "id": "clean-0004",
+      "name": "Clean Expired Auth Sessions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 560]
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nconsole.log(`Cleanup completed at ${now}`);\nreturn [{ json: { completed_at: now, status: 'cleanup_done' } }];"
+      },
+      "id": "clean-0005",
+      "name": "Log Cleanup Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 380]
+    }
+  ],
+  "connections": {
+    "Schedule - 2am Daily": {
+      "main": [[
+        { "node": "Delete Failed Projects Older Than 30 Days", "type": "main", "index": 0 },
+        { "node": "Archive Projects Older Than 90 Days", "type": "main", "index": 0 },
+        { "node": "Clean Expired Auth Sessions", "type": "main", "index": 0 }
+      ]]
+    },
+    "Delete Failed Projects Older Than 30 Days": { "main": [[{ "node": "Log Cleanup Complete", "type": "main", "index": 0 }]] },
+    "Archive Projects Older Than 90 Days": { "main": [[{ "node": "Log Cleanup Complete", "type": "main", "index": 0 }]] },
+    "Clean Expired Auth Sessions": { "main": [[{ "node": "Log Cleanup Complete", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

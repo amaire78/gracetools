@@ -1,0 +1,151 @@
+{
+  "name": "GraceTools - Email Notifications Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "send-notification",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "email-0001",
+      "name": "Webhook - Notification Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nif (!body.type || !body.user_email) throw new Error('Missing type or user_email');\nreturn [{ json: body }];"
+      },
+      "id": "email-0002",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "options": {}, "conditions": [{ "leftValue": "={{ $json.type }}", "rightValue": "welcome", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "welcome" },
+            { "conditions": { "options": {}, "conditions": [{ "leftValue": "={{ $json.type }}", "rightValue": "project_submitted", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "submitted" },
+            { "conditions": { "options": {}, "conditions": [{ "leftValue": "={{ $json.type }}", "rightValue": "password_reset", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "reset" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "email-0003",
+      "name": "Route by Notification Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst html = `\n<div style=\"font-family:Georgia,serif; max-width:600px; margin:0 auto;\">\n  <div style=\"background:#7F77DD; padding:24px 32px; border-radius:12px 12px 0 0;\">\n    <h1 style=\"color:white; margin:0;\">✚ GraceTools</h1>\n    <p style=\"color:rgba(255,255,255,0.8); margin:8px 0 0;\">Welcome to GraceTools</p>\n  </div>\n  <div style=\"background:white; padding:32px; border:1px solid #E0E0E0;\">\n    <h2>Welcome, ${data.user_name || 'Pastor'}!</h2>\n    <p style=\"color:#444; line-height:1.8;\">Your GraceTools account is ready. You now have access to AI-powered sermon preparation built on a Mid-Acts Dispensational framework.</p>\n    <div style=\"background:#F5F3FF; border-radius:12px; padding:20px; margin:24px 0;\">\n      <p style=\"font-weight:700; color:#534AB7; margin:0 0 12px;\">What you can do:</p>\n      <p style=\"color:#444; margin:0 0 8px;\">📖 Build expository sermons from any passage</p>\n      <p style=\"color:#444; margin:0 0 8px;\">💡 Generate from a topic, notes, or YouTube link</p>\n      <p style=\"color:#444; margin:0 0 8px;\">📄 Export to PDF, Word, and PowerPoint</p>\n      <p style=\"color:#444; margin:0;\">✚ All grounded in Grace doctrine</p>\n    </div>\n    <div style=\"text-align:center; margin-top:24px;\">\n      <a href=\"https://gracetools.com/builder\" style=\"display:inline-block; background:#7F77DD; color:white; padding:14px 36px; border-radius:8px; text-decoration:none; font-weight:700; font-size:16px;\">Build Your First Sermon →</a>\n    </div>\n    <p style=\"color:#888; font-size:13px; margin-top:24px; text-align:center;\">Questions? Reply to this email — we read every one.</p>\n  </div>\n  <div style=\"background:#F5F3FF; padding:16px 32px; border-radius:0 0 12px 12px; text-align:center;\">\n    <p style=\"color:#888; font-size:12px; margin:0;\">© GraceTools | support@gracetools.com</p>\n  </div>\n</div>`;\nreturn [{ json: { ...data, email_html: html, email_subject: 'Welcome to GraceTools — Your Account is Ready' } }];"
+      },
+      "id": "email-0004",
+      "name": "Build Welcome Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst html = `\n<div style=\"font-family:Georgia,serif; max-width:600px; margin:0 auto;\">\n  <div style=\"background:#7F77DD; padding:24px 32px; border-radius:12px 12px 0 0;\">\n    <h1 style=\"color:white; margin:0;\">✚ GraceTools</h1>\n    <p style=\"color:rgba(255,255,255,0.8); margin:8px 0 0;\">Sermon Submitted</p>\n  </div>\n  <div style=\"background:white; padding:32px; border:1px solid #E0E0E0;\">\n    <h2>Your sermon is being generated</h2>\n    <p style=\"color:#444;\">We've received your request and generation has started. Most sermons are ready in <strong>5–10 minutes</strong>. We'll email you when it's done.</p>\n    <div style=\"background:#F5F3FF; border-radius:12px; padding:20px; margin:24px 0;\">\n      <table style=\"width:100%; font-size:14px;\">\n        <tr><td style=\"color:#888; padding:4px 0;\">Package</td><td style=\"font-weight:600; color:#1a1a1a; text-align:right;\">${data.base_package || 'Unknown'}</td></tr>\n        <tr><td style=\"color:#888; padding:4px 0;\">Input Type</td><td style=\"font-weight:600; color:#1a1a1a; text-align:right;\">${data.input_type || 'Unknown'}</td></tr>\n        <tr><td style=\"color:#888; padding:4px 0;\">Credits Used</td><td style=\"font-weight:600; color:#7F77DD; text-align:right;\">${data.credits_cost || 0}</td></tr>\n      </table>\n    </div>\n    <p style=\"color:#888; font-size:13px;\">You can close this email and we'll notify you when it's ready. If you don't hear back in 15 minutes, contact support.</p>\n  </div>\n  <div style=\"background:#F5F3FF; padding:16px 32px; border-radius:0 0 12px 12px; text-align:center;\">\n    <p style=\"color:#888; font-size:12px; margin:0;\">© GraceTools | support@gracetools.com</p>\n  </div>\n</div>`;\nreturn [{ json: { ...data, email_html: html, email_subject: 'GraceTools: Your sermon is being generated…' } }];"
+      },
+      "id": "email-0005",
+      "name": "Build Submitted Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst resetLink = `https://gracetools.com/reset-password?token=${data.reset_token || 'TOKEN'}`;\nconst html = `\n<div style=\"font-family:Georgia,serif; max-width:600px; margin:0 auto;\">\n  <div style=\"background:#7F77DD; padding:24px 32px; border-radius:12px 12px 0 0;\">\n    <h1 style=\"color:white; margin:0;\">✚ GraceTools</h1>\n  </div>\n  <div style=\"background:white; padding:32px; border:1px solid #E0E0E0;\">\n    <h2>Reset your password</h2>\n    <p style=\"color:#444;\">We received a request to reset the password for your GraceTools account. Click the button below to set a new password.</p>\n    <div style=\"text-align:center; margin:32px 0;\">\n      <a href=\"${resetLink}\" style=\"display:inline-block; background:#7F77DD; color:white; padding:14px 36px; border-radius:8px; text-decoration:none; font-weight:700;\">Reset Password</a>\n    </div>\n    <p style=\"color:#888; font-size:13px;\">This link expires in 1 hour. If you didn't request a password reset, ignore this email — your account is safe.</p>\n  </div>\n  <div style=\"background:#F5F3FF; padding:16px 32px; border-radius:0 0 12px 12px; text-align:center;\">\n    <p style=\"color:#888; font-size:12px; margin:0;\">© GraceTools | support@gracetools.com</p>\n  </div>\n</div>`;\nreturn [{ json: { ...data, email_html: html, email_subject: 'GraceTools: Reset your password' } }];"
+      },
+      "id": "email-0006",
+      "name": "Build Password Reset Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 620]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.user_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": { "replyTo": "support@gracetools.com" }
+      },
+      "id": "email-0007",
+      "name": "Send Email (Welcome)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1120, 180],
+      "credentials": { "gmailOAuth2": { "name": "YOUR_GMAIL_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.user_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": { "replyTo": "support@gracetools.com" }
+      },
+      "id": "email-0008",
+      "name": "Send Email (Submitted)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1120, 400],
+      "credentials": { "gmailOAuth2": { "name": "YOUR_GMAIL_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.user_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": { "replyTo": "support@gracetools.com" }
+      },
+      "id": "email-0009",
+      "name": "Send Email (Reset)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1120, 620],
+      "credentials": { "gmailOAuth2": { "name": "YOUR_GMAIL_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"sent\": true }",
+        "options": {}
+      },
+      "id": "email-0010",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    }
+  ],
+  "connections": {
+    "Webhook - Notification Trigger": { "main": [[{ "node": "Validate", "type": "main", "index": 0 }]] },
+    "Validate": { "main": [[{ "node": "Route by Notification Type", "type": "main", "index": 0 }]] },
+    "Route by Notification Type": {
+      "main": [
+        [{ "node": "Build Welcome Email", "type": "main", "index": 0 }],
+        [{ "node": "Build Submitted Email", "type": "main", "index": 0 }],
+        [{ "node": "Build Password Reset Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Welcome Email": { "main": [[{ "node": "Send Email (Welcome)", "type": "main", "index": 0 }]] },
+    "Build Submitted Email": { "main": [[{ "node": "Send Email (Submitted)", "type": "main", "index": 0 }]] },
+    "Build Password Reset Email": { "main": [[{ "node": "Send Email (Reset)", "type": "main", "index": 0 }]] },
+    "Send Email (Welcome)": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] },
+    "Send Email (Submitted)": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] },
+    "Send Email (Reset)": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

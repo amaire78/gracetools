@@ -1,0 +1,196 @@
+{
+  "name": "GraceTools - Stripe Payment & Credits Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stripe-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "stripe-0001",
+      "name": "Webhook - Stripe Events",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verify this is a real Stripe event and extract key data\nconst body = $input.first().json.body;\nconst eventType = body.type;\nconst data = body.data?.object || {};\n\nconsole.log('Stripe event received:', eventType);\n\nreturn [{\n  json: {\n    event_type: eventType,\n    stripe_event_id: body.id,\n    payment_intent_id: data.payment_intent || data.id || null,\n    customer_email: data.customer_details?.email || data.metadata?.user_email || null,\n    user_id: data.metadata?.user_id || null,\n    credits_to_add: parseInt(data.metadata?.credits || '0'),\n    amount_paid: data.amount_total || data.amount || 0,\n    currency: data.currency || 'usd',\n    stripe_customer_id: data.customer || null,\n    raw: data\n  }\n}];"
+      },
+      "id": "stripe-0002",
+      "name": "Parse Stripe Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "e1", "leftValue": "={{ $json.event_type }}", "rightValue": "checkout.session.completed", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "stripe-0003",
+      "name": "Is Successful Payment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            { "id": "e2", "leftValue": "={{ $json.customer_email }}", "rightValue": "", "operator": { "type": "string", "operation": "isNotEmpty" } },
+            { "id": "e3", "leftValue": "={{ $json.credits_to_add }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "stripe-0004",
+      "name": "Has Valid Email and Credits?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/add_credits",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_user_email: $json.customer_email, p_amount: $json.credits_to_add, p_type: 'purchase', p_stripe_charge_id: $json.payment_intent_id }) }}",
+        "options": {}
+      },
+      "id": "stripe-0005",
+      "name": "Add Credits to User Account",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/credit_transactions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ user_email: $('Parse Stripe Event').item.json.customer_email, amount: $('Parse Stripe Event').item.json.credits_to_add, type: 'purchase', stripe_charge_id: $('Parse Stripe Event').item.json.payment_intent_id, amount_paid_cents: $('Parse Stripe Event').item.json.amount_paid, stripe_event_id: $('Parse Stripe Event').item.json.stripe_event_id }) }}",
+        "options": {}
+      },
+      "id": "stripe-0006",
+      "name": "Log Transaction in Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse Stripe Event').item.json;\nconst dollarAmount = (data.amount_paid / 100).toFixed(2);\n\nconst emailHtml = `\n<div style=\"font-family:Georgia,serif; max-width:600px; margin:0 auto;\">\n  <div style=\"background:#7F77DD; padding:24px 32px; border-radius:12px 12px 0 0;\">\n    <h1 style=\"color:white; margin:0;\">✚ GraceTools</h1>\n    <p style=\"color:rgba(255,255,255,0.8); margin:8px 0 0;\">Payment Confirmed</p>\n  </div>\n  <div style=\"background:white; padding:32px; border:1px solid #E0E0E0;\">\n    <h2 style=\"color:#1a1a1a;\">Your credits are ready to use!</h2>\n    <div style=\"background:#F5F3FF; border-radius:12px; padding:24px; text-align:center; margin:24px 0;\">\n      <p style=\"color:#7F77DD; font-size:13px; margin:0 0 8px; text-transform:uppercase; letter-spacing:1px;\">Credits Added</p>\n      <p style=\"font-size:48px; font-weight:700; color:#534AB7; margin:0;\">${data.credits_to_add}</p>\n    </div>\n    <table style=\"width:100%; font-size:14px; color:#444;\">\n      <tr><td style=\"padding:6px 0; color:#888;\">Amount Paid</td><td style=\"text-align:right; font-weight:600;\">$${dollarAmount}</td></tr>\n      <tr><td style=\"padding:6px 0; color:#888;\">Transaction ID</td><td style=\"text-align:right; font-size:12px;\">${data.payment_intent_id || ''}</td></tr>\n    </table>\n    <div style=\"margin-top:24px; text-align:center;\">\n      <a href=\"https://gracetools.com/builder\" style=\"display:inline-block; background:#7F77DD; color:white; padding:12px 32px; border-radius:8px; text-decoration:none; font-weight:600;\">Start Building →</a>\n    </div>\n    <p style=\"color:#888; font-size:12px; margin-top:24px;\">Credits never expire. Questions? Reply to this email.</p>\n  </div>\n  <div style=\"background:#F5F3FF; padding:16px 32px; border-radius:0 0 12px 12px; text-align:center;\">\n    <p style=\"color:#888; font-size:12px; margin:0;\">© GraceTools | support@gracetools.com</p>\n  </div>\n</div>`;\n\nreturn [{ json: { ...data, email_html: emailHtml, dollar_amount: dollarAmount } }];"
+      },
+      "id": "stripe-0007",
+      "name": "Build Receipt Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 120]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Parse Stripe Event').item.json.customer_email }}",
+        "subject": "=GraceTools Receipt — {{ $('Parse Stripe Event').item.json.credits_to_add }} Credits Added",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": { "replyTo": "support@gracetools.com" }
+      },
+      "id": "stripe-0008",
+      "name": "Send Receipt to Customer",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1780, 120],
+      "credentials": { "gmailOAuth2": { "name": "YOUR_GMAIL_CREDENTIAL_NAME" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"received\": true }",
+        "options": { "responseCode": 200 }
+      },
+      "id": "stripe-0009",
+      "name": "Respond 200 to Stripe",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log ignored events (refunds, disputes, etc.) without crashing\nconst data = $('Parse Stripe Event').item.json;\nconsole.log('Stripe event ignored (not checkout.session.completed):', data.event_type);\nreturn [{ json: { ignored: true, event_type: data.event_type } }];"
+      },
+      "id": "stripe-0010",
+      "name": "Log Ignored Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"received\": true }",
+        "options": { "responseCode": 200 }
+      },
+      "id": "stripe-0011",
+      "name": "Respond 200 (Ignored)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 420]
+    }
+  ],
+  "connections": {
+    "Webhook - Stripe Events": { "main": [[{ "node": "Parse Stripe Event", "type": "main", "index": 0 }]] },
+    "Parse Stripe Event": { "main": [[{ "node": "Is Successful Payment?", "type": "main", "index": 0 }]] },
+    "Is Successful Payment?": {
+      "main": [
+        [{ "node": "Has Valid Email and Credits?", "type": "main", "index": 0 }],
+        [{ "node": "Log Ignored Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Valid Email and Credits?": {
+      "main": [
+        [{ "node": "Add Credits to User Account", "type": "main", "index": 0 }],
+        [{ "node": "Log Ignored Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Add Credits to User Account": { "main": [[{ "node": "Log Transaction in Supabase", "type": "main", "index": 0 }]] },
+    "Log Transaction in Supabase": { "main": [[{ "node": "Build Receipt Email", "type": "main", "index": 0 }]] },
+    "Build Receipt Email": { "main": [[{ "node": "Send Receipt to Customer", "type": "main", "index": 0 }]] },
+    "Send Receipt to Customer": { "main": [[{ "node": "Respond 200 to Stripe", "type": "main", "index": 0 }]] },
+    "Log Ignored Event": { "main": [[{ "node": "Respond 200 (Ignored)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

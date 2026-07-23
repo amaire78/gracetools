@@ -1,0 +1,576 @@
+{
+  "name": "GraceTools - Sermon Generation Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-sermon",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0001",
+      "name": "Webhook - Receive Sermon Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "gracetools-sermon-gen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate incoming payload\nconst body = $input.first().json.body;\n\nconst required = ['user_id', 'user_email', 'input_type', 'input_content', 'base_package', 'credits_cost'];\nconst missing = required.filter(f => !body[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\nconst validPackages = ['essentials', 'preacher', 'master'];\nif (!validPackages.includes(body.base_package)) {\n  throw new Error(`Invalid base_package: ${body.base_package}`);\n}\n\nconst validInputTypes = ['passage', 'topic', 'youtube', 'audio', 'pdf', 'notes'];\nif (!validInputTypes.includes(body.input_type)) {\n  throw new Error(`Invalid input_type: ${body.input_type}`);\n}\n\n// Set defaults for optional fields\nreturn [{\n  json: {\n    user_id: body.user_id,\n    user_email: body.user_email,\n    input_type: body.input_type,\n    input_content: body.input_content,\n    base_package: body.base_package,\n    credits_cost: body.credits_cost,\n    doctrinal_position: body.doctrinal_position || 'Mid-Acts Dispensational',\n    bible_translation: body.bible_translation || 'KJV',\n    audience: body.audience || 'Sunday Morning - Mixed',\n    sermon_style: body.sermon_style || 'Expository (Verse-by-Verse)',\n    desired_length: body.desired_length || 30,\n    tone: body.tone || 'Pastoral / Encouraging',\n    focus: body.focus || 'Application Focused',\n    addons: body.addons || [],\n    project_id: body.project_id || null,\n    attempt: 1\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0002",
+      "name": "Validate & Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/deduct_credits",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_user_id", "value": "={{ $json.user_id }}" },
+            { "name": "p_amount", "value": "={{ $json.credits_cost }}" },
+            { "name": "p_project_id", "value": "={{ $json.project_id }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0003",
+      "name": "Deduct Credits in Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?id=eq.{{ $('Validate & Normalize Input').item.json.project_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"status\": \"generating\" }",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0004",
+      "name": "Set Project Status - Generating",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "input-type-check",
+              "leftValue": "={{ $('Validate & Normalize Input').item.json.input_type }}",
+              "rightValue": "youtube",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0005",
+      "name": "Is YouTube Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.supadata.ai/v1/youtube/transcript?url={{ encodeURIComponent($('Validate & Normalize Input').item.json.input_content) }}&text=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.SUPADATA_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0006",
+      "name": "Fetch YouTube Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass through content as-is for passage, topic, notes, pdf, audio\nconst data = $('Validate & Normalize Input').item.json;\nreturn [{ json: { processed_content: data.input_content } }];"
+      },
+      "id": "1a2b3c4d-0007",
+      "name": "Pass Content Through",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge the processed content back with original request data\nconst validated = $('Validate & Normalize Input').item.json;\n\n// Get content from whichever branch ran\nlet processed_content = '';\ntry {\n  processed_content = $('Fetch YouTube Transcript').item.json.content || $('Fetch YouTube Transcript').item.json.text || '';\n} catch(e) {\n  try {\n    processed_content = $('Pass Content Through').item.json.processed_content;\n  } catch(e2) {\n    processed_content = validated.input_content;\n  }\n}\n\nreturn [{\n  json: {\n    ...validated,\n    processed_content\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0008",
+      "name": "Merge Processed Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the system prompt based on theological settings\nconst data = $input.first().json;\n\nconst systemPrompt = `You are an expert biblical theologian and sermon writer operating within a ${data.doctrinal_position} theological framework.\n\nTHEOLOGICAL PARAMETERS:\n- Doctrinal Position: ${data.doctrinal_position}\n- Bible Translation: ${data.bible_translation}\n- All Scripture references must use the ${data.bible_translation}\n- Dispensational awareness is critical: rightly divide the Word of Truth (2 Timothy 2:15)\n- Paul's epistles (Romans through Philemon) are the primary doctrinal source for the Body of Christ today\n- Grace doctrine: salvation by grace through faith alone, apart from works\n\nSERMON PARAMETERS:\n- Audience: ${data.audience}\n- Style: ${data.sermon_style}\n- Desired Length: ${data.desired_length} minutes (approx ${data.desired_length * 130} words for spoken delivery)\n- Tone: ${data.tone}\n- Focus: ${data.focus}\n\nOUTPUT RULES:\n- Always cite Scripture with book, chapter, and verse\n- Stay doctrinally consistent with Mid-Acts dispensationalism throughout\n- Do not mix kingdom gospel (Matthew-Acts 8) with grace gospel (Acts 9 onward)\n- Applications should be practical and relevant to a modern congregation\n- Write in clear, accessible language appropriate for ${data.audience}`;\n\nreturn [{ json: { ...data, system_prompt: systemPrompt } }];"
+      },
+      "id": "1a2b3c4d-0009",
+      "name": "Build System Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "package-check",
+              "leftValue": "={{ $json.base_package }}",
+              "rightValue": "essentials",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0010",
+      "name": "Which Package?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": {
+          "systemMessage": "={{ $('Build System Prompt').item.json.system_prompt }}",
+          "temperature": 0.7,
+          "maxOutputTokens": 2000
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Generate an ESSENTIALS sermon package based on the following input.\n\nINPUT TYPE: {{ $('Build System Prompt').item.json.input_type }}\nCONTENT: {{ $('Build System Prompt').item.json.processed_content }}\n\nGenerate ONLY the following components and return as valid JSON:\n{\n  \"title\": \"Sermon title\",\n  \"big_idea\": \"One sentence central truth of the sermon\",\n  \"main_points\": [\n    { \"point\": \"Point 1 title\", \"explanation\": \"2-3 sentence explanation\", \"scripture\": \"Key verse\" },\n    { \"point\": \"Point 2 title\", \"explanation\": \"2-3 sentence explanation\", \"scripture\": \"Key verse\" },\n    { \"point\": \"Point 3 title\", \"explanation\": \"2-3 sentence explanation\", \"scripture\": \"Key verse\" }\n  ],\n  \"key_takeaways\": [\"Takeaway 1\", \"Takeaway 2\", \"Takeaway 3\"],\n  \"estimated_speaking_time\": \"X minutes\",\n  \"scripture_reference\": \"Primary passage\"\n}\n\nReturn ONLY the JSON object. No preamble, no markdown, no explanation."
+            }
+          ]
+        }
+      },
+      "id": "1a2b3c4d-0011",
+      "name": "Generate - Essentials Package",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [2220, 180],
+      "credentials": {
+        "googleGeminiApi": {
+          "name": "YOUR_GEMINI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": {
+          "systemMessage": "={{ $('Build System Prompt').item.json.system_prompt }}",
+          "temperature": 0.7,
+          "maxOutputTokens": 4000
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Generate a PREACHER sermon package based on the following input.\n\nINPUT TYPE: {{ $('Build System Prompt').item.json.input_type }}\nCONTENT: {{ $('Build System Prompt').item.json.processed_content }}\n\nGenerate ALL of the following components and return as valid JSON:\n{\n  \"title\": \"Sermon title\",\n  \"big_idea\": \"One sentence central truth\",\n  \"historical_background\": \"2-3 paragraphs on historical and cultural context\",\n  \"cultural_context\": \"1-2 paragraphs on cultural setting\",\n  \"cross_references\": [\n    { \"verse\": \"Reference\", \"relevance\": \"Why this verse connects\" }\n  ],\n  \"character_studies\": [\n    { \"character\": \"Name\", \"lesson\": \"What we learn from them\" }\n  ],\n  \"main_points\": [\n    { \"point\": \"Point title\", \"explanation\": \"Full paragraph\", \"scripture\": \"Key verse\", \"application\": \"Practical application\" }\n  ],\n  \"applications\": [\"Application 1\", \"Application 2\", \"Application 3\"],\n  \"introduction\": \"Full sermon introduction (2-3 paragraphs)\",\n  \"conclusion\": \"Full sermon conclusion (2 paragraphs)\",\n  \"key_takeaways\": [\"Takeaway 1\", \"Takeaway 2\", \"Takeaway 3\"],\n  \"estimated_speaking_time\": \"X minutes\",\n  \"scripture_reference\": \"Primary passage\"\n}\n\nReturn ONLY the JSON object. No preamble, no markdown, no explanation."
+            }
+          ]
+        }
+      },
+      "id": "1a2b3c4d-0012",
+      "name": "Generate - Preacher Package",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [2220, 340],
+      "credentials": {
+        "googleGeminiApi": {
+          "name": "YOUR_GEMINI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "options": {
+          "systemMessage": "={{ $('Build System Prompt').item.json.system_prompt }}",
+          "temperature": 0.7,
+          "maxOutputTokens": 8000
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Generate a MASTER SERMON package based on the following input.\n\nINPUT TYPE: {{ $('Build System Prompt').item.json.input_type }}\nCONTENT: {{ $('Build System Prompt').item.json.processed_content }}\n\nGenerate ALL of the following and return as valid JSON:\n{\n  \"title\": \"Sermon title\",\n  \"big_idea\": \"One sentence central truth\",\n  \"historical_background\": \"3-4 paragraphs\",\n  \"cultural_context\": \"2-3 paragraphs\",\n  \"cross_references\": [ { \"verse\": \"Reference\", \"relevance\": \"Why it connects\" } ],\n  \"character_studies\": [ { \"character\": \"Name\", \"lesson\": \"Lesson\" } ],\n  \"verse_by_verse_commentary\": [\n    { \"verse\": \"Verse reference\", \"commentary\": \"Detailed exposition paragraph\" }\n  ],\n  \"main_points\": [\n    { \"point\": \"Title\", \"explanation\": \"Full paragraph\", \"scripture\": \"Key verse\", \"application\": \"Application\", \"illustration\": \"Story or example\" }\n  ],\n  \"applications\": [\"Application 1\", \"Application 2\", \"Application 3\"],\n  \"introduction\": \"Full introduction (3 paragraphs)\",\n  \"conclusion\": \"Full conclusion (3 paragraphs)\",\n  \"childrens_message\": \"Short 3-5 minute message for children on the same theme\",\n  \"object_lesson\": { \"object\": \"Item to use\", \"lesson\": \"How to use it to teach the truth\" },\n  \"discussion_questions\": [\"Question 1\", \"Question 2\", \"Question 3\", \"Question 4\", \"Question 5\"],\n  \"key_takeaways\": [\"Takeaway 1\", \"Takeaway 2\", \"Takeaway 3\"],\n  \"estimated_speaking_time\": \"X minutes\",\n  \"scripture_reference\": \"Primary passage\"\n}\n\nReturn ONLY the JSON object. No preamble, no markdown, no explanation."
+            }
+          ]
+        }
+      },
+      "id": "1a2b3c4d-0013",
+      "name": "Generate - Master Sermon Package",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [2220, 500],
+      "credentials": {
+        "googleGeminiApi": {
+          "name": "YOUR_GEMINI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse whichever Gemini node ran and normalize output\nlet rawContent = '';\nlet packageType = '';\nlet sourceData = {};\n\ntry {\n  rawContent = $('Generate - Essentials Package').item.json.text || $('Generate - Essentials Package').item.json.content || '';\n  packageType = 'essentials';\n  sourceData = $('Build System Prompt').item.json;\n} catch(e) {}\n\nif (!rawContent) {\n  try {\n    rawContent = $('Generate - Preacher Package').item.json.text || $('Generate - Preacher Package').item.json.content || '';\n    packageType = 'preacher';\n    sourceData = $('Build System Prompt').item.json;\n  } catch(e) {}\n}\n\nif (!rawContent) {\n  try {\n    rawContent = $('Generate - Master Sermon Package').item.json.text || $('Generate - Master Sermon Package').item.json.content || '';\n    packageType = 'master';\n    sourceData = $('Build System Prompt').item.json;\n  } catch(e) {}\n}\n\nif (!rawContent) {\n  throw new Error('No content returned from any Gemini generation node');\n}\n\n// Strip markdown fences if present\nconst cleaned = rawContent.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\nlet sermonJson;\ntry {\n  sermonJson = JSON.parse(cleaned);\n} catch(e) {\n  throw new Error(`Failed to parse Gemini JSON output: ${e.message}. Raw: ${cleaned.substring(0, 200)}`);\n}\n\nreturn [{\n  json: {\n    ...sourceData,\n    package_type: packageType,\n    sermon: sermonJson,\n    generated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0014",
+      "name": "Parse & Normalize Sermon Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build HTML email body with the full sermon\nconst data = $input.first().json;\nconst sermon = data.sermon;\n\nlet bodyHtml = `\n<div style=\"font-family: Georgia, serif; max-width: 700px; margin: 0 auto; color: #2C2C2A;\">\n  <div style=\"background: #7F77DD; padding: 24px 32px; border-radius: 12px 12px 0 0;\">\n    <h1 style=\"color: white; margin: 0; font-size: 24px;\">✚ GraceTools</h1>\n    <p style=\"color: rgba(255,255,255,0.8); margin: 8px 0 0;\">Your sermon is ready</p>\n  </div>\n  \n  <div style=\"background: white; padding: 32px; border: 1px solid #E0E0E0;\">\n    <h2 style=\"font-size: 28px; color: #1a1a1a; margin-bottom: 8px;\">${sermon.title || 'Untitled Sermon'}</h2>\n    <p style=\"color: #7F77DD; font-weight: 600; margin-bottom: 24px;\">${sermon.scripture_reference || ''} | ${data.bible_translation} | ${data.doctrinal_position}</p>\n    \n    <div style=\"background: #F5F3FF; border-left: 4px solid #7F77DD; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 24px;\">\n      <p style=\"font-weight: 700; color: #534AB7; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;\">Big Idea</p>\n      <p style=\"color: #1a1a1a; margin: 0; font-size: 16px; font-style: italic;\">${sermon.big_idea || ''}</p>\n    </div>\n`;\n\n// Introduction (if preacher or master)\nif (sermon.introduction) {\n  bodyHtml += `\n    <h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px;\">Introduction</h3>\n    <p style=\"line-height: 1.8; color: #444;\">${sermon.introduction}</p>\n  `;\n}\n\n// Main Points\nif (sermon.main_points && sermon.main_points.length > 0) {\n  bodyHtml += `<h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px; margin-top: 28px;\">Main Points</h3>`;\n  sermon.main_points.forEach((pt, i) => {\n    bodyHtml += `\n      <div style=\"margin-bottom: 20px; padding: 16px; background: #FAFAFA; border-radius: 8px; border: 1px solid #E0E0E0;\">\n        <h4 style=\"color: #1a1a1a; margin: 0 0 8px;\">${i+1}. ${pt.point}</h4>\n        <p style=\"color: #666; margin: 0 0 8px; line-height: 1.7;\">${pt.explanation}</p>\n        ${pt.scripture ? `<p style=\"color: #7F77DD; font-size: 13px; font-style: italic; margin: 0 0 6px;\">📖 ${pt.scripture}</p>` : ''}\n        ${pt.application ? `<p style=\"color: #444; font-size: 13px; margin: 0;\"><strong>Application:</strong> ${pt.application}</p>` : ''}\n      </div>\n    `;\n  });\n}\n\n// Verse by Verse (master only)\nif (sermon.verse_by_verse_commentary && sermon.verse_by_verse_commentary.length > 0) {\n  bodyHtml += `<h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px; margin-top: 28px;\">Verse-by-Verse Commentary</h3>`;\n  sermon.verse_by_verse_commentary.forEach(v => {\n    bodyHtml += `\n      <div style=\"margin-bottom: 16px;\">\n        <p style=\"font-weight: 700; color: #534AB7; margin: 0 0 4px;\">${v.verse}</p>\n        <p style=\"color: #444; line-height: 1.7; margin: 0;\">${v.commentary}</p>\n      </div>\n    `;\n  });\n}\n\n// Conclusion\nif (sermon.conclusion) {\n  bodyHtml += `\n    <h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px; margin-top: 28px;\">Conclusion</h3>\n    <p style=\"line-height: 1.8; color: #444;\">${sermon.conclusion}</p>\n  `;\n}\n\n// Key Takeaways\nif (sermon.key_takeaways && sermon.key_takeaways.length > 0) {\n  bodyHtml += `\n    <h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px; margin-top: 28px;\">Key Takeaways</h3>\n    <ul style=\"color: #444; line-height: 2;\">\n      ${sermon.key_takeaways.map(t => `<li>${t}</li>`).join('')}\n    </ul>\n  `;\n}\n\n// Discussion Questions (master only)\nif (sermon.discussion_questions && sermon.discussion_questions.length > 0) {\n  bodyHtml += `\n    <h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px; margin-top: 28px;\">Discussion Questions</h3>\n    <ol style=\"color: #444; line-height: 2;\">\n      ${sermon.discussion_questions.map(q => `<li>${q}</li>`).join('')}\n    </ol>\n  `;\n}\n\n// Children's Message (master only)\nif (sermon.childrens_message) {\n  bodyHtml += `\n    <h3 style=\"color: #534AB7; border-bottom: 1px solid #E0E0E0; padding-bottom: 8px; margin-top: 28px;\">Children's Message</h3>\n    <p style=\"line-height: 1.8; color: #444;\">${sermon.childrens_message}</p>\n  `;\n}\n\n// Object Lesson (master only)\nif (sermon.object_lesson) {\n  bodyHtml += `\n    <div style=\"background: #F0F9F4; border: 1px solid #9FE1CB; border-radius: 8px; padding: 16px; margin-top: 20px;\">\n      <p style=\"font-weight: 700; color: #0F6E56; margin: 0 0 8px;\">Object Lesson: ${sermon.object_lesson.object}</p>\n      <p style=\"color: #444; margin: 0; line-height: 1.7;\">${sermon.object_lesson.lesson}</p>\n    </div>\n  `;\n}\n\nbodyHtml += `\n    <div style=\"margin-top: 32px; padding: 16px; background: #F5F3FF; border-radius: 8px; text-align: center;\">\n      <p style=\"color: #534AB7; font-size: 13px; margin: 0;\">Estimated speaking time: ${sermon.estimated_speaking_time || data.desired_length + ' minutes'}</p>\n      <p style=\"color: #888; font-size: 12px; margin: 8px 0 0;\">Generated by GraceTools | ${data.doctrinal_position} | ${data.bible_translation}</p>\n    </div>\n  </div>\n  \n  <div style=\"background: #F5F3FF; padding: 16px 32px; border-radius: 0 0 12px 12px; text-align: center;\">\n    <p style=\"color: #888; font-size: 12px; margin: 0;\">© GraceTools. Built for pastors.</p>\n  </div>\n</div>\n`;\n\nreturn [{\n  json: {\n    ...data,\n    email_html: bodyHtml,\n    email_subject: `Your Sermon is Ready: ${sermon.title || 'Untitled'}`\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0015",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 340]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.user_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "html",
+        "html": "={{ $json.email_html }}",
+        "options": {
+          "replyTo": "support@gracetools.com"
+        }
+      },
+      "id": "1a2b3c4d-0016",
+      "name": "Send Sermon Email to Customer",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2880, 340],
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "YOUR_GMAIL_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?id=eq.{{ $('Build System Prompt').item.json.project_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'ready', completed_at: new Date().toISOString(), sermon_json: $('Parse & Normalize Sermon Output').item.json.sermon }) }}",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0017",
+      "name": "Set Project Status - Ready",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3100, 340]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Sermon generated and emailed successfully', project_id: $('Build System Prompt').item.json.project_id, title: $('Parse & Normalize Sermon Output').item.json.sermon.title }) }}",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0018",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3320, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ERROR HANDLER - runs when any node above fails\n// Captures error context and passes to retry/refund flow\nconst errorData = $input.first().json;\nconst validated = $('Validate & Normalize Input').item.json;\n\nreturn [{\n  json: {\n    user_id: validated.user_id || 'unknown',\n    user_email: validated.user_email || 'unknown',\n    project_id: validated.project_id || null,\n    credits_cost: validated.credits_cost || 0,\n    attempt: validated.attempt || 1,\n    error_message: errorData.error?.message || 'Unknown error during generation',\n    failed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0019",
+      "name": "Capture Error Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "attempt-check",
+              "leftValue": "={{ $json.attempt }}",
+              "rightValue": 1,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0020",
+      "name": "First Attempt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 560]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "1a2b3c4d-0021",
+      "name": "Wait 30s Before Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2880, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://midacts.pikapod.net/webhook/generate-sermon",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...($('Build System Prompt').item.json), attempt: 2 }) }}",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0022",
+      "name": "Retry - Call Self",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3100, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/refund_credits",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_user_id", "value": "={{ $json.user_id }}" },
+            { "name": "p_amount", "value": "={{ $json.credits_cost }}" },
+            { "name": "p_project_id", "value": "={{ $json.project_id }}" },
+            { "name": "p_reason", "value": "Generation failed after retry" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0023",
+      "name": "Refund Credits in Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 640]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?id=eq.{{ $('Capture Error Context').item.json.project_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'failed', error_message: $('Capture Error Context').item.json.error_message }) }}",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0024",
+      "name": "Set Project Status - Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3100, 640]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Capture Error Context').item.json.user_email }}",
+        "subject": "GraceTools: We're sorry — your credits have been refunded",
+        "emailType": "html",
+        "html": "=<div style=\"font-family: Georgia, serif; max-width: 600px; margin: 0 auto;\">\n  <div style=\"background: #7F77DD; padding: 24px 32px; border-radius: 12px 12px 0 0;\">\n    <h1 style=\"color: white; margin: 0;\">✚ GraceTools</h1>\n  </div>\n  <div style=\"background: white; padding: 32px; border: 1px solid #E0E0E0;\">\n    <h2>We're sorry — something went wrong</h2>\n    <p>Your sermon generation encountered an error. We've automatically refunded <strong>{{ $('Capture Error Context').item.json.credits_cost }} credits</strong> to your account.</p>\n    <p>Please try again. If the problem continues, reply to this email and we'll help you directly.</p>\n    <a href=\"https://gracetools.com/builder\" style=\"display: inline-block; background: #7F77DD; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 16px;\">Try Again</a>\n  </div>\n  <div style=\"background: #F5F3FF; padding: 16px 32px; border-radius: 0 0 12px 12px; text-align: center;\">\n    <p style=\"color: #888; font-size: 12px; margin: 0;\">© GraceTools | support@gracetools.com</p>\n  </div>\n</div>",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0025",
+      "name": "Send Failure Email to Customer",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [3320, 640],
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "YOUR_GMAIL_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": false, \"message\": \"Generation failed. Credits refunded.\" }",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "1a2b3c4d-0026",
+      "name": "Respond Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3540, 640]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Sermon Request": {
+      "main": [[{ "node": "Validate & Normalize Input", "type": "main", "index": 0 }]]
+    },
+    "Validate & Normalize Input": {
+      "main": [[{ "node": "Deduct Credits in Supabase", "type": "main", "index": 0 }]]
+    },
+    "Deduct Credits in Supabase": {
+      "main": [[{ "node": "Set Project Status - Generating", "type": "main", "index": 0 }]]
+    },
+    "Set Project Status - Generating": {
+      "main": [[{ "node": "Is YouTube Link?", "type": "main", "index": 0 }]]
+    },
+    "Is YouTube Link?": {
+      "main": [
+        [{ "node": "Fetch YouTube Transcript", "type": "main", "index": 0 }],
+        [{ "node": "Pass Content Through", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch YouTube Transcript": {
+      "main": [[{ "node": "Merge Processed Content", "type": "main", "index": 0 }]]
+    },
+    "Pass Content Through": {
+      "main": [[{ "node": "Merge Processed Content", "type": "main", "index": 0 }]]
+    },
+    "Merge Processed Content": {
+      "main": [[{ "node": "Build System Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build System Prompt": {
+      "main": [[{ "node": "Which Package?", "type": "main", "index": 0 }]]
+    },
+    "Which Package?": {
+      "main": [
+        [{ "node": "Generate - Essentials Package", "type": "main", "index": 0 }],
+        [{ "node": "Generate - Preacher Package", "type": "main", "index": 0 }],
+        [{ "node": "Generate - Master Sermon Package", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate - Essentials Package": {
+      "main": [[{ "node": "Parse & Normalize Sermon Output", "type": "main", "index": 0 }]]
+    },
+    "Generate - Preacher Package": {
+      "main": [[{ "node": "Parse & Normalize Sermon Output", "type": "main", "index": 0 }]]
+    },
+    "Generate - Master Sermon Package": {
+      "main": [[{ "node": "Parse & Normalize Sermon Output", "type": "main", "index": 0 }]]
+    },
+    "Parse & Normalize Sermon Output": {
+      "main": [[{ "node": "Build Email HTML", "type": "main", "index": 0 }]]
+    },
+    "Build Email HTML": {
+      "main": [[{ "node": "Send Sermon Email to Customer", "type": "main", "index": 0 }]]
+    },
+    "Send Sermon Email to Customer": {
+      "main": [[{ "node": "Set Project Status - Ready", "type": "main", "index": 0 }]]
+    },
+    "Set Project Status - Ready": {
+      "main": [[{ "node": "Respond Success", "type": "main", "index": 0 }]]
+    },
+    "Capture Error Context": {
+      "main": [[{ "node": "First Attempt?", "type": "main", "index": 0 }]]
+    },
+    "First Attempt?": {
+      "main": [
+        [{ "node": "Wait 30s Before Retry", "type": "main", "index": 0 }],
+        [{ "node": "Refund Credits in Supabase", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 30s Before Retry": {
+      "main": [[{ "node": "Retry - Call Self", "type": "main", "index": 0 }]]
+    },
+    "Refund Credits in Supabase": {
+      "main": [[{ "node": "Set Project Status - Failed", "type": "main", "index": 0 }]]
+    },
+    "Set Project Status - Failed": {
+      "main": [[{ "node": "Send Failure Email to Customer", "type": "main", "index": 0 }]]
+    },
+    "Send Failure Email to Customer": {
+      "main": [[{ "node": "Respond Failure", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

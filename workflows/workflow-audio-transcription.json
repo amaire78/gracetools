@@ -1,0 +1,114 @@
+{
+  "name": "GraceTools - Audio Upload Transcription Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "transcribe-audio",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "audio-0001",
+      "name": "Webhook - Audio Upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nif (!body.audio_url && !body.audio_base64) {\n  throw new Error('Missing audio_url or audio_base64');\n}\nreturn [{ json: {\n  user_email: body.user_email,\n  user_id: body.user_id,\n  project_id: body.project_id,\n  audio_url: body.audio_url || null,\n  audio_base64: body.audio_base64 || null,\n  filename: body.filename || 'audio.mp3'\n}}];"
+      },
+      "id": "audio-0002",
+      "name": "Validate Audio Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "whisper-large-v3-turbo" },
+            { "name": "url", "value": "={{ $json.audio_url }}" },
+            { "name": "response_format", "value": "json" },
+            { "name": "language", "value": "en" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "audio-0003",
+      "name": "Transcribe with Groq Whisper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const transcription = $input.first().json.text || '';\nconst validated = $('Validate Audio Input').item.json;\n\nif (!transcription || transcription.length < 10) {\n  throw new Error('Transcription returned empty or too short');\n}\n\nreturn [{\n  json: {\n    ...validated,\n    transcription,\n    word_count: transcription.split(' ').length,\n    transcribed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "audio-0004",
+      "name": "Extract Transcription Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?id=eq.{{ $json.project_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ input_content: $json.transcription, input_type: 'audio_transcribed' }) }}",
+        "options": {}
+      },
+      "id": "audio-0005",
+      "name": "Save Transcription to Project",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, transcription: $('Extract Transcription Text').item.json.transcription, word_count: $('Extract Transcription Text').item.json.word_count }) }}",
+        "options": {}
+      },
+      "id": "audio-0006",
+      "name": "Return Transcription",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Audio Upload": { "main": [[{ "node": "Validate Audio Input", "type": "main", "index": 0 }]] },
+    "Validate Audio Input": { "main": [[{ "node": "Transcribe with Groq Whisper", "type": "main", "index": 0 }]] },
+    "Transcribe with Groq Whisper": { "main": [[{ "node": "Extract Transcription Text", "type": "main", "index": 0 }]] },
+    "Extract Transcription Text": { "main": [[{ "node": "Save Transcription to Project", "type": "main", "index": 0 }]] },
+    "Save Transcription to Project": { "main": [[{ "node": "Return Transcription", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
