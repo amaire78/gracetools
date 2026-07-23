@@ -28,7 +28,10 @@
                 inputType: 'passage',
                 inputContent: '',
                 translation: 'KJV',
-                audience: 'Sunday Morning - Mixed'
+                audience: 'Sunday Morning - Mixed',
+                doctrinalPosition: 'Mid-Acts Dispensational',
+                readingLevel: 'Standard',
+                citationMode: 'Reference Only'
             },
             flash: null
         };
@@ -44,6 +47,9 @@
         ];
         const translations = ['KJV', 'NASB', 'NKJV', 'ESV', 'NIV'];
         const audiences = ['Sunday Morning - Mixed', 'Youth Service', 'Small Group / Bible Study', 'Funeral / Memorial', 'Wedding', "Men's / Women's Ministry"];
+        const doctrinalPositions = ['Mid-Acts Dispensational', 'Baptist', 'Reformed / Calvinist', 'Wesleyan / Arminian', 'Pentecostal / Charismatic', 'Non-Denominational / Evangelical'];
+        const readingLevels = ['Simple / Accessible', 'Standard', 'Scholarly / Academic'];
+        const citationModes = ['Reference Only', 'Full Verse Text'];
         const packageRecommendedDuration = { essentials: [15, 30], preacher: [30, 45, 60], master: [45, 60, 90] };
         const packageRecommendedAddons = {
             essentials: ['Discussion Questions', 'Printable'],
@@ -194,11 +200,13 @@
                 input_content: app.sermonState.inputContent || 'Romans 8:1-4',
                 base_package: app.sermonState.package,
                 credits_cost: total,
-                doctrinal_position: 'Mid-Acts Dispensational',
+                doctrinal_position: app.sermonState.doctrinalPosition,
                 bible_translation: app.sermonState.translation,
                 audience: app.sermonState.audience,
                 sermon_style: 'Expository (Verse-by-Verse)',
                 desired_length: app.sermonState.duration,
+                reading_level: app.sermonState.readingLevel,
+                citation_mode: app.sermonState.citationMode,
                 addons: app.sermonState.addons
             };
 
@@ -728,6 +736,24 @@
                                                 ${audiences.map(a => `<option value="${a}" ${app.sermonState.audience === a ? 'selected' : ''}>${a}</option>`).join('')}
                                             </select>
                                         </div>
+                                        <div>
+                                            <label for="builder-doctrine" class="block text-xs font-semibold text-gray-600 mb-1">Doctrinal Position</label>
+                                            <select id="builder-doctrine" onchange="app.sermonState.doctrinalPosition=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${doctrinalPositions.map(d => `<option value="${d}" ${app.sermonState.doctrinalPosition === d ? 'selected' : ''}>${d}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="builder-reading-level" class="block text-xs font-semibold text-gray-600 mb-1">Reading Level</label>
+                                            <select id="builder-reading-level" onchange="app.sermonState.readingLevel=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${readingLevels.map(r => `<option value="${r}" ${app.sermonState.readingLevel === r ? 'selected' : ''}>${r}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="sm:col-span-2">
+                                            <label for="builder-citation-mode" class="block text-xs font-semibold text-gray-600 mb-1">Scripture Citations</label>
+                                            <select id="builder-citation-mode" onchange="app.sermonState.citationMode=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${citationModes.map(c => `<option value="${c}" ${app.sermonState.citationMode === c ? 'selected' : ''}>${c}</option>`).join('')}
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -785,6 +811,14 @@
                                     <div class="flex justify-between text-sm">
                                         <span class="text-gray-600">Translation</span>
                                         <span class="font-semibold text-gray-900">${app.sermonState.translation}</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Doctrine</span>
+                                        <span class="font-semibold text-gray-900">${app.sermonState.doctrinalPosition}</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Reading Level</span>
+                                        <span class="font-semibold text-gray-900">${app.sermonState.readingLevel}</span>
                                     </div>
                                     <div class="flex justify-between text-sm">
                                         <span class="text-gray-600">Duration</span>
