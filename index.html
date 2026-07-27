@@ -791,6 +791,27 @@
                                 </div>
 
                                 <div>
+                                    <div class="p-5 rounded-xl border-2 mb-6 ${app.sermonState.addons.includes('Fact Checker') ? 'border-amber-500 bg-amber-50' : 'border-amber-300 bg-amber-50/60'}">
+                                        <button onclick="
+                                            if(app.sermonState.addons.includes('Fact Checker')) {
+                                                app.sermonState.addons = app.sermonState.addons.filter(a => a !== 'Fact Checker');
+                                            } else {
+                                                app.sermonState.addons.push('Fact Checker');
+                                            }
+                                            render();
+                                        " class="w-full text-left flex items-start gap-4">
+                                            <span class="text-3xl">\ud83d\udee1\ufe0f</span>
+                                            <div class="flex-1">
+                                                <div class="flex items-center justify-between flex-wrap gap-2">
+                                                    <span class="font-bold text-gray-900 text-lg">Fact Checker</span>
+                                                    <span class="text-sm text-purple-700 font-bold">+${FACT_CHECKER_PRICE} credits</span>
+                                                </div>
+                                                <p class="text-sm text-gray-700 mt-1">A second AI pass reviews your sermon for scripture accuracy, fabricated claims, and doctrinal consistency before you preach it. Flags concerns for you to review \u2014 never rewrites anything automatically.</p>
+                                                <p class="text-xs font-semibold ${app.sermonState.addons.includes('Fact Checker') ? 'text-amber-700' : 'text-amber-600'} mt-2">${app.sermonState.addons.includes('Fact Checker') ? '\u2713 Added to your sermon' : 'Tap to add \u2014 recommended before public sharing'}</p>
+                                            </div>
+                                        </button>
+                                    </div>
+
                                     <div class="flex items-center gap-2 mb-4">
                                         <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-sm flex items-center justify-center font-bold">4</div>
                                         <h2 class="font-semibold text-gray-900">Add-ons</h2>
@@ -830,26 +851,6 @@
                                                 <div class="text-xs text-purple-600 font-semibold">+${price} credits</div>
                                             </button>
                                         `).join('')}
-                                    </div>
-
-                                    <div class="mt-6 p-4 rounded-lg border-2 ${app.sermonState.addons.includes('Fact Checker') ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}">
-                                        <button onclick="
-                                            if(app.sermonState.addons.includes('Fact Checker')) {
-                                                app.sermonState.addons = app.sermonState.addons.filter(a => a !== 'Fact Checker');
-                                            } else {
-                                                app.sermonState.addons.push('Fact Checker');
-                                            }
-                                            render();
-                                        " class="w-full text-left flex items-start gap-3">
-                                            <span class="text-xl mt-0.5">\u2713</span>
-                                            <div class="flex-1">
-                                                <div class="flex items-center justify-between">
-                                                    <span class="font-semibold text-gray-900">Fact Checker</span>
-                                                    <span class="text-xs text-purple-600 font-semibold">+${FACT_CHECKER_PRICE} credits</span>
-                                                </div>
-                                                <p class="text-xs text-gray-600 mt-1">A second AI pass reviews your sermon for scripture accuracy, fabricated claims, and doctrinal consistency. Flags concerns for you to review \u2014 never rewrites anything automatically.</p>
-                                            </div>
-                                        </button>
                                     </div>
                                 </div>
                             </div>
