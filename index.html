@@ -38,6 +38,9 @@
 
         const packagePrices = { essentials: 15, preacher: 35, master: 65 };
         const addonPrices = { 'Youth Version': 8, 'Small Group Guide': 10, 'Blog Article': 6, 'Social Posts': 5, 'Discussion Questions': 7, 'Printable': 5 };
+        const youtubeAddonPrices = { 'YouTube Title & Thumbnail': 5, 'YouTube Description': 4, 'YouTube Tags': 2, 'YouTube Chapters': 4, 'YouTube Hook': 3 };
+        const FACT_CHECKER_PRICE = 8;
+        const ALL_ADDON_PRICES = { ...addonPrices, ...youtubeAddonPrices, 'Fact Checker': FACT_CHECKER_PRICE };
 
         const inputTypes = [
             { key: 'passage', label: 'Bible Passage', placeholder: 'e.g. Romans 8:1-4' },
@@ -165,7 +168,7 @@
 
         function getSermonTotal() {
             let total = packagePrices[app.sermonState.package];
-            app.sermonState.addons.forEach(addon => { total += addonPrices[addon] || 0; });
+            app.sermonState.addons.forEach(addon => { total += ALL_ADDON_PRICES[addon] || 0; });
             return total;
         }
 
@@ -807,6 +810,46 @@
                                                 <div class="text-xs text-purple-600 font-semibold">+${price} credits</div>
                                             </button>
                                         `).join('')}
+                                    </div>
+
+                                    <div class="flex items-center gap-2 mb-4 mt-6">
+                                        <span class="text-red-600">▶</span>
+                                        <h3 class="font-semibold text-gray-900 text-sm">Posting to YouTube? Get these from your sermon automatically</h3>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        ${Object.entries(youtubeAddonPrices).map(([addon, price]) => `
+                                            <button onclick="
+                                                if(app.sermonState.addons.includes('${addon}')) {
+                                                    app.sermonState.addons = app.sermonState.addons.filter(a => a !== '${addon}');
+                                                } else {
+                                                    app.sermonState.addons.push('${addon}');
+                                                }
+                                                render();
+                                            " class="p-4 rounded-lg border-2 text-left ${app.sermonState.addons.includes(addon) ? 'border-red-500 bg-red-50' : 'border-gray-200'}">
+                                                <div class="font-semibold text-sm text-gray-900">${addon.replace('YouTube ', '')}</div>
+                                                <div class="text-xs text-purple-600 font-semibold">+${price} credits</div>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+
+                                    <div class="mt-6 p-4 rounded-lg border-2 ${app.sermonState.addons.includes('Fact Checker') ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}">
+                                        <button onclick="
+                                            if(app.sermonState.addons.includes('Fact Checker')) {
+                                                app.sermonState.addons = app.sermonState.addons.filter(a => a !== 'Fact Checker');
+                                            } else {
+                                                app.sermonState.addons.push('Fact Checker');
+                                            }
+                                            render();
+                                        " class="w-full text-left flex items-start gap-3">
+                                            <span class="text-xl mt-0.5">\u2713</span>
+                                            <div class="flex-1">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="font-semibold text-gray-900">Fact Checker</span>
+                                                    <span class="text-xs text-purple-600 font-semibold">+${FACT_CHECKER_PRICE} credits</span>
+                                                </div>
+                                                <p class="text-xs text-gray-600 mt-1">A second AI pass reviews your sermon for scripture accuracy, fabricated claims, and doctrinal consistency. Flags concerns for you to review \u2014 never rewrites anything automatically.</p>
+                                            </div>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
