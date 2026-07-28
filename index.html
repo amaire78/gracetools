@@ -278,6 +278,143 @@
         // null = not yet loaded, [] = loaded but empty, [...] = loaded with data
         app.projects = null;
         app.viewingProject = null;
+        app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false };
+
+        const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/56052e96-4e99-4abe-aa3a-9c15e7d71a51/quick-tools';
+        const QUICK_TOOL_PRICE = 2;
+        const QUICK_TOOLS = [
+            { key: 'sermon_title', label: 'Sermon Title Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4 or "walking by faith"' },
+            { key: 'big_idea', label: 'Big Idea Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4' },
+            { key: 'introduction', label: 'Introduction Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4' },
+            { key: 'conclusion', label: 'Conclusion Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4' },
+            { key: 'closing_prayer', label: 'Closing Prayer Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4' },
+            { key: 'verse_explanation', label: 'Verse Explanation', category: 'Bible Study', placeholder: 'e.g. John 3:16' },
+            { key: 'chapter_summary', label: 'Chapter Summary', category: 'Bible Study', placeholder: 'e.g. Romans 8' },
+            { key: 'book_overview', label: 'Book Overview', category: 'Bible Study', placeholder: 'e.g. Romans' },
+            { key: 'cross_reference', label: 'Cross-Reference Finder', category: 'Bible Study', placeholder: 'e.g. Romans 8:1' },
+            { key: 'word_study', label: 'Greek & Hebrew Word Study', category: 'Bible Study', placeholder: 'e.g. "agape" in John 3:16' },
+            { key: 'bible_timeline', label: 'Bible Timeline', category: 'Bible Study', placeholder: 'e.g. The life of Moses' },
+            { key: 'doctrine_explorer', label: 'Doctrine Explorer', category: 'Research', placeholder: 'e.g. Justification by Faith' },
+            { key: 'illustration_finder', label: 'Sermon Illustration Finder', category: 'Research', placeholder: "e.g. God's faithfulness in trials" },
+            { key: 'reading_plan', label: 'Reading Plan Generator', category: 'Research', placeholder: 'e.g. Book of Romans, 14 days' },
+            { key: 'devotional', label: 'Devotional Generator', category: 'Research', placeholder: 'e.g. Philippians 4:6-7' },
+            { key: 'commentary_search', label: 'Commentary & Lexicon Search', category: 'Research', placeholder: 'e.g. Romans 8:28' },
+            { key: 'topic_explorer', label: 'Topic Explorer', category: 'Research', placeholder: 'e.g. Grace vs. Law' },
+            { key: 'announcement_writer', label: 'Church Announcement Writer', category: 'Writing Tools', placeholder: 'e.g. Upcoming potluck on Sunday' },
+            { key: 'bulletin_writer', label: 'Bulletin Writer', category: 'Writing Tools', placeholder: "e.g. This week's sermon theme" },
+            { key: 'email_writer', label: 'Email Writer', category: 'Writing Tools', placeholder: 'e.g. Announcing a new small group' }
+        ];
+
+        function renderQuickToolResult(result) {
+            if (!result) return '';
+            if (result.raw_text) return `<p class="text-gray-700 whitespace-pre-line">${result.raw_text}</p>`;
+            let html = '';
+            for (const [key, value] of Object.entries(result)) {
+                const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                if (Array.isArray(value)) {
+                    html += `<div class="mb-4"><p class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2">${label}</p>`;
+                    if (value.length && typeof value[0] === 'object') {
+                        html += value.map(item => `<div class="mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">${Object.entries(item).map(([k, v]) => `<p class="text-sm"><span class="font-semibold text-gray-900">${k.replace(/_/g, ' ')}:</span> <span class="text-gray-700">${v}</span></p>`).join('')}</div>`).join('');
+                    } else {
+                        html += `<ul class="list-disc pl-5 text-gray-700 space-y-1">${value.map(v => `<li>${v}</li>`).join('')}</ul>`;
+                    }
+                    html += `</div>`;
+                } else if (typeof value === 'object' && value !== null) {
+                    html += `<div class="mb-4"><p class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2">${label}</p><div class="p-3 bg-gray-50 rounded-lg border border-gray-200">${Object.entries(value).map(([k, v]) => `<p class="text-sm"><span class="font-semibold text-gray-900">${k.replace(/_/g, ' ')}:</span> <span class="text-gray-700">${v}</span></p>`).join('')}</div></div>`;
+                } else {
+                    html += `<div class="mb-4"><p class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2">${label}</p><p class="text-gray-700 leading-relaxed">${value}</p></div>`;
+                }
+            }
+            return html;
+        }
+
+        async function submitQuickTool() {
+            if (!app.quickTools.inputContent || !app.quickTools.inputContent.trim()) {
+                setFlash('error', 'Please enter something for the tool to work from.');
+                render();
+                return;
+            }
+            if (app.user.credits < QUICK_TOOL_PRICE) {
+                setFlash('error', "You don't have enough credits for this. Buy more credits to continue.");
+                render();
+                return;
+            }
+            app.quickTools.loading = true;
+            render();
+            try {
+                const res = await fetch(QUICK_TOOLS_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({
+                        tool_type: app.quickTools.selectedTool,
+                        input_content: app.quickTools.inputContent,
+                        user_id: ensureUserId(),
+                        user_email: app.user.email,
+                        bible_translation: app.sermonState.translation,
+                        doctrinal_position: app.sermonState.doctrinalPosition
+                    })
+                });
+                if (!res.ok) {
+                    const errText = await res.text().catch(() => '');
+                    throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 150) : ''));
+                }
+                const data = await res.json();
+                app.quickTools.result = data.result;
+                app.user.credits -= QUICK_TOOL_PRICE;
+                localStorage.setItem('user', JSON.stringify(app.user));
+            } catch (err) {
+                app.quickTools.loading = false;
+                setFlash('error', "Couldn't generate that (" + err.message + ").");
+                render();
+                return;
+            }
+            app.quickTools.loading = false;
+            render();
+        }
+
+        function QuickToolsPage() {
+            const categories = [...new Set(QUICK_TOOLS.map(t => t.category))];
+            const currentTool = QUICK_TOOLS.find(t => t.key === app.quickTools.selectedTool) || QUICK_TOOLS[0];
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
+                    <div class="max-w-4xl mx-auto">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Quick Tools</h1>
+                        <p class="text-gray-600 mb-8">20 standalone tools for sermon prep, Bible study, and church writing \u2014 ${QUICK_TOOL_PRICE} credits each</p>
+
+                        <div class="grid lg:grid-cols-3 gap-8">
+                            <div class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4 h-fit">
+                                ${categories.map(cat => `
+                                    <div class="mb-4">
+                                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 px-2">${cat}</p>
+                                        ${QUICK_TOOLS.filter(t => t.category === cat).map(t => `
+                                            <button onclick="app.quickTools.selectedTool='${t.key}'; app.quickTools.result=null; render();" class="w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ${app.quickTools.selectedTool === t.key ? 'bg-purple-100 text-purple-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'}">${t.label}</button>
+                                        `).join('')}
+                                    </div>
+                                `).join('')}
+                            </div>
+
+                            <div class="lg:col-span-2">
+                                <div class="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+                                    <h2 class="font-bold text-gray-900 mb-1">${currentTool.label}</h2>
+                                    <p class="text-sm text-gray-500 mb-4">+${QUICK_TOOL_PRICE} credits per use \u2022 You have ${app.user.credits} credits</p>
+                                    <textarea id="quick-tool-input" oninput="app.quickTools.inputContent = this.value" placeholder="${currentTool.placeholder}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4">${app.quickTools.inputContent}</textarea>
+                                    <button onclick="submitQuickTool()" ${app.quickTools.loading ? 'disabled' : ''} class="mt-4 bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
+                                        ${app.quickTools.loading ? 'Generating\u2026' : 'Generate'}
+                                    </button>
+                                </div>
+
+                                ${app.quickTools.result ? `
+                                    <div class="bg-white rounded-2xl border border-gray-200 p-6">
+                                        <h3 class="font-bold text-gray-900 mb-4">Result</h3>
+                                        ${renderQuickToolResult(app.quickTools.result)}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
         let pollTimer = null;
 
         async function loadProjects() {
@@ -357,6 +494,7 @@
                             ${app.isLoggedIn ? `
                                 <button type="button" onclick="goTo('dashboard')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Dashboard</button>
                                 <button type="button" onclick="openSermonLibrary()" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Sermon Library</button>
+                                <button type="button" onclick="goTo('quick-tools')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Quick Tools</button>
                                 <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
                                 <button type="button" onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
                             ` : `
@@ -1131,6 +1269,7 @@
             else if (app.currentPage === 'forgot-password') content = ForgotPasswordPage();
             else if (app.currentPage === 'dashboard') content = app.isLoggedIn ? DashboardPage() : HomePage();
             else if (app.currentPage === 'sermon-viewer') content = app.isLoggedIn ? SermonViewerPage() : HomePage();
+            else if (app.currentPage === 'quick-tools') content = app.isLoggedIn ? QuickToolsPage() : HomePage();
             else if (app.currentPage === 'pricing') content = PricingPage();
             else if (app.currentPage === 'builder') content = app.isLoggedIn ? BuilderPage() : SignupPage();
             else if (app.currentPage === 'about') content = PricingPageComplete();
