@@ -3,7 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GraceTools - AI Sermon Builder</title>
+    <title>GraceTools - AI Sermon Prep for Pastors</title>
+    <meta name="description" content="AI-powered sermon preparation for pastors. Build expository or topical sermons from a Bible passage, topic, PDF, or audio recording — with theology-aware AI, real Scripture citations, and content repurposed for YouTube, social media, and small groups.">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="GraceTools - AI Sermon Prep for Pastors">
+    <meta property="og:description" content="AI-powered sermon preparation for pastors. Build expository or topical sermons from a Bible passage, topic, PDF, or audio recording — with theology-aware AI and real Scripture citations.">
+    <meta property="og:url" content="https://gracetools.vercel.app">
+    <!-- og:image intentionally omitted until a real branded image is provided -->
+
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="GraceTools - AI Sermon Prep for Pastors">
+    <meta name="twitter:description" content="AI-powered sermon preparation for pastors, built on real theology-aware AI.">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -77,10 +89,61 @@
         }
 
         // Navigation
+        const TRACK_EVENT_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/f00aef88-9492-457c-9087-19bf173debe6/track-event';
+
+        function trackEvent(action, extra) {
+            // Fire-and-forget - never let analytics failures affect the user experience
+            try {
+                fetch(TRACK_EVENT_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ action, user_id: localStorage.getItem('userId') || null, ...extra })
+                }).catch(() => {});
+            } catch (e) {}
+        }
+
+        // Capture real client-side JS errors so we actually find out when
+        // something breaks for a real user, instead of hearing about it secondhand.
+        window.onerror = function (message, source, lineno, colno, error) {
+            trackEvent('js_error', {
+                page: app.currentPage,
+                error_message: String(message),
+                error_stack: error && error.stack ? error.stack : (source + ':' + lineno + ':' + colno)
+            });
+            return false;
+        };
+        window.addEventListener('unhandledrejection', function (event) {
+            trackEvent('js_error', {
+                page: app.currentPage,
+                error_message: 'Unhandled promise rejection: ' + (event.reason && event.reason.message ? event.reason.message : String(event.reason)),
+                error_stack: event.reason && event.reason.stack ? event.reason.stack : ''
+            });
+        });
+
+        const PAGE_TITLES = {
+            home: 'GraceTools - AI Sermon Prep for Pastors',
+            signup: 'Create Account - GraceTools',
+            login: 'Sign In - GraceTools',
+            dashboard: 'Dashboard - GraceTools',
+            builder: 'Build a Sermon - GraceTools',
+            pricing: 'Pricing - GraceTools',
+            'quick-tools': 'Quick Tools - GraceTools',
+            'how-it-works': 'How It Works - GraceTools',
+            support: 'Support - GraceTools',
+            faq: 'FAQ - GraceTools',
+            about: 'About - GraceTools',
+            terms: 'Terms of Service - GraceTools',
+            privacy: 'Privacy Policy - GraceTools',
+            legal: 'Legal Notices - GraceTools',
+            account: 'Account Settings - GraceTools'
+        };
+
         function goTo(page) {
             app.currentPage = page;
             window.scrollTo(0, 0);
+            document.title = PAGE_TITLES[page] || 'GraceTools';
             render();
+            trackEvent('pageview', { page });
             if (page === 'dashboard' && app.isLoggedIn) {
                 loadProjects();
             }
@@ -122,6 +185,16 @@
             const name = document.getElementById('signup-name').value;
             const email = document.getElementById('signup-email').value;
             const church = document.getElementById('signup-church').value;
+
+            // Honeypot: real users never see or fill this field; bots often do.
+            const honeypot = document.getElementById('signup-website');
+            if (honeypot && honeypot.value) {
+                trackEvent('honeypot_triggered', { page: 'signup' });
+                setFlash('error', "Couldn't create your account. Please try again.");
+                render();
+                return;
+            }
+
             // Note: this creates the real account record (name, email, church,
             // credits) in Supabase. It does not yet verify passwords against a
             // real auth provider - that still needs Supabase Auth wired in.
@@ -364,6 +437,7 @@
         app.projects = null;
         app.viewingProject = null;
         app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false };
+        app.faqOpen = null;
 
         const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/56052e96-4e99-4abe-aa3a-9c15e7d71a51/quick-tools';
         const QUICK_TOOL_PRICE = 2;
@@ -658,6 +732,10 @@
                         <p class="text-gray-600 mb-6 text-sm">Join GraceTools and start building sermons today</p>
                         
                         <form onsubmit="handleSignup(); return false;">
+                            <div style="position: absolute; left: -9999px;" aria-hidden="true">
+                                <label for="signup-website">Website (leave this blank)</label>
+                                <input id="signup-website" type="text" tabindex="-1" autocomplete="off" />
+                            </div>
                             <div class="mb-4">
                                 <label for="signup-name" class="block text-sm font-semibold text-gray-900 mb-2">Full Name</label>
                                 <input id="signup-name" required type="text" placeholder="Pastor John Smith" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
@@ -1362,6 +1440,115 @@
             `;
         }
 
+        const CONTACT_FORM_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/db16fa56-3123-4c2f-8523-b2ab23539019/contact-form';
+
+        async function submitContactForm() {
+            const name = document.getElementById('contact-name').value;
+            const email = document.getElementById('contact-email').value;
+            const message = document.getElementById('contact-message').value;
+            const honeypot = document.getElementById('contact-website');
+
+            if (!name || !email || !message) {
+                setFlash('error', 'Please fill in all fields.');
+                render();
+                return;
+            }
+            if (honeypot && honeypot.value) {
+                trackEvent('honeypot_triggered', { page: 'support' });
+                setFlash('error', "Couldn't send your message. Please try again.");
+                render();
+                return;
+            }
+
+            try {
+                const res = await fetch(CONTACT_FORM_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ name, email, message })
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                document.getElementById('contact-name').value = '';
+                document.getElementById('contact-email').value = '';
+                document.getElementById('contact-message').value = '';
+                setFlash('success', "Message sent — we'll get back to you within 24 hours.");
+            } catch (err) {
+                setFlash('error', "Couldn't send your message (" + err.message + "). Please try again or email support@gracetools.com directly.");
+            }
+            render();
+        }
+
+        function SupportPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-2xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-2">Support</h1>
+                        <p class="text-gray-600 mb-8">Have a question? Send us a message and we'll respond within 24 hours.</p>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8 mb-6">
+                            <div style="position: absolute; left: -9999px;" aria-hidden="true">
+                                <label for="contact-website">Website (leave this blank)</label>
+                                <input id="contact-website" type="text" tabindex="-1" autocomplete="off" />
+                            </div>
+                            <div class="mb-4">
+                                <label for="contact-name" class="block text-sm font-semibold text-gray-900 mb-2">Name</label>
+                                <input id="contact-name" type="text" placeholder="Your name" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div class="mb-4">
+                                <label for="contact-email" class="block text-sm font-semibold text-gray-900 mb-2">Email</label>
+                                <input id="contact-email" type="email" placeholder="you@church.com" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div class="mb-4">
+                                <label for="contact-message" class="block text-sm font-semibold text-gray-900 mb-2">Message</label>
+                                <textarea id="contact-message" maxlength="3000" rows="5" placeholder="How can we help?" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none"></textarea>
+                            </div>
+                            <button onclick="submitContactForm()" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Send Message</button>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-6 text-sm text-gray-600">
+                            <p class="mb-2"><strong>Email:</strong> support@gracetools.com</p>
+                            <p><strong>Response Time:</strong> Within 24 hours</p>
+                        </div>
+
+                        <p class="text-center text-gray-600 text-sm mt-6">Looking for quick answers? <button type="button" onclick="goTo('faq')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Check our FAQ</button></p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function FAQPage() {
+            const faqs = [
+                { q: 'What theological framework does GraceTools use?', a: 'By default, GraceTools generates content within a Mid-Acts Dispensational, Grace theology framework. You can also select from other doctrinal positions (Baptist, Reformed, Wesleyan, Pentecostal, or Non-Denominational) in the builder before generating.' },
+                { q: 'Do credits expire?', a: 'No. Credits you purchase never expire — use them whenever you need them.' },
+                { q: 'What if a sermon fails to generate?', a: "If generation fails for any reason, your credits are automatically refunded in full — you're never charged for a failed attempt." },
+                { q: 'Can I upload my own notes, a PDF, or an audio recording?', a: 'Yes. The builder supports typed text, a Bible passage or topic, a YouTube link, an uploaded PDF (we extract the text), or an uploaded audio file (we transcribe it for you).' },
+                { q: 'What is the Fact Checker?', a: "It's an optional add-on that runs a second AI pass over your generated sermon, checking scripture accuracy, flagging any fabricated claims, and confirming doctrinal consistency. It only flags concerns for your review — it never rewrites anything automatically." },
+                { q: 'What Bible translations are supported?', a: 'KJV, NASB, NKJV, ESV, and NIV are currently available in the builder.' },
+                { q: 'Can I control how AI quotes Scripture?', a: 'Yes — choose "Reference Only" (just the verse address) or "Full Verse Text" (the complete quoted text) in the builder.' },
+                { q: 'How long does generation take?', a: 'Most sermons generate and arrive by email within 30-90 seconds.' },
+                { q: 'Is my data private?', a: "See our Privacy Policy for full details — in short, your content is used to generate your sermon and is not shared publicly." },
+                { q: "What's the difference between Essentials, Preacher, and Master packages?", a: 'Essentials includes a title, big idea, main points, and key takeaways. Preacher adds a full introduction, historical/cultural background, cross-references, and conclusion. Master adds verse-by-verse commentary, character studies, a children\'s message, and discussion questions.' }
+            ];
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-2xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-8">Frequently Asked Questions</h1>
+                        <div class="space-y-4">
+                            ${faqs.map((f, i) => `
+                                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                    <button onclick="app.faqOpen = app.faqOpen === ${i} ? null : ${i}; render();" class="w-full text-left px-6 py-4 flex items-center justify-between">
+                                        <span class="font-semibold text-gray-900">${f.q}</span>
+                                        <span class="text-purple-600 text-xl">${app.faqOpen === i ? '\u2212' : '+'}</span>
+                                    </button>
+                                    ${app.faqOpen === i ? `<div class="px-6 pb-4 text-gray-600 text-sm leading-relaxed">${f.a}</div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                        <p class="text-center text-gray-600 text-sm mt-8">Still have questions? <button type="button" onclick="goTo('support')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Contact us</button></p>
+                    </div>
+                </div>
+            `;
+        }
+
         // Render
         function render() {
             let content = '';
@@ -1382,7 +1569,8 @@
             else if (app.currentPage === 'account') content = app.isLoggedIn ? AccountPage() : HomePage();
             else if (app.currentPage === 'checkout') content = app.isLoggedIn ? CheckoutPage() : HomePage();
             else if (app.currentPage === 'how-it-works') content = `<div class="pt-20 min-h-screen bg-gray-50 px-6 py-12"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">How It Works</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4">1. Choose a package (Essentials, Preacher, or Master Sermon)</p><p class="text-gray-600 mb-4">2. Provide your input (passage, topic, notes, or YouTube link)</p><p class="text-gray-600 mb-4">3. Configure your settings (theology, translation, audience, length)</p><p class="text-gray-600 mb-4">4. Add optional features (discussion guides, social posts, etc.)</p><p class="text-gray-600 mb-4">5. Checkout with credits (they never expire)</p><p class="text-gray-600">6. AI generates your complete sermon in 5-10 minutes</p></div></div></div>`;
-            else if (app.currentPage === 'support') content = `<div class="pt-20 min-h-screen bg-gray-50 px-6 py-12"><div class="max-w-4xl mx-auto"><h1 class="text-4xl font-bold mb-8">Support</h1><div class="bg-white rounded-2xl border p-8"><p class="text-gray-600 mb-4"><strong>Email:</strong> support@gracetools.com</p><p class="text-gray-600 mb-4"><strong>Response Time:</strong> Within 24 hours</p><p class="text-gray-600">Have a question? We're here to help!</p></div></div></div>`;
+            else if (app.currentPage === 'support') content = SupportPage();
+            else if (app.currentPage === 'faq') content = FAQPage();
 
             document.getElementById('app').innerHTML = Header() + FlashBanner() + content + `
                 <footer class="bg-white border-t border-gray-200 px-6 py-8 mt-12">
@@ -1392,6 +1580,7 @@
                             <button type="button" onclick="goTo('terms')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Terms</button>
                             <button type="button" onclick="goTo('privacy')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Privacy</button>
                             <button type="button" onclick="goTo('support')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
+                            <button type="button" onclick="goTo('faq')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">FAQ</button>
                         </div>
                         <p>© 2024 GraceTools. Built for pastors.</p>
                     </div>
