@@ -16,12 +16,53 @@
     <meta name="twitter:title" content="GraceTools - AI Sermon Prep for Pastors">
     <meta name="twitter:description" content="AI-powered sermon preparation for pastors, built on real theology-aware AI.">
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Remap Tailwind's default 'purple' palette to a deep ink-navy scale.
+        // This is the single highest-leverage change: every existing
+        // bg-purple-600 / text-purple-700 / border-purple-* class across the
+        // whole app (149 instances) now renders the new brand color, with
+        // zero risk of missing an instance across ~1600 lines.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        purple: {
+                            50: '#EEF1F7',
+                            100: '#DCE3EF',
+                            200: '#B9C7DF',
+                            300: '#93A9CB',
+                            400: '#5C7099',
+                            500: '#3D5079',
+                            600: '#2C3E63',
+                            700: '#223050',
+                            800: '#1A2540',
+                            900: '#131C30'
+                        },
+                        gray: {
+                            50: '#FAF8F3'
+                        }
+                    },
+                    fontFamily: {
+                        serif: ['"Source Serif 4"', 'Georgia', 'serif'],
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif']
+                    }
+                }
+            }
+        };
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background-color: #FAF8F3; }
+        h1, h2, h3 { font-family: 'Source Serif 4', Georgia, serif; letter-spacing: -0.01em; }
         .fade-in { animation: fadeIn 0.3s ease-in; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .verse-ribbon { border-left: 3px solid #B4924C; padding-left: 1rem; font-family: 'Source Serif 4', Georgia, serif; font-style: italic; }
+        ::selection { background-color: #DCE3EF; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -682,8 +723,9 @@
         function HomePage() {
             return `
                 <div class="pt-16">
-                    <section class="bg-white px-6 py-16">
+                    <section class="bg-white px-6 py-20">
                         <div class="max-w-3xl mx-auto text-center">
+                            <p class="verse-ribbon inline-block text-left text-gray-500 mb-8 text-sm">"Study to shew thyself approved unto God... rightly dividing the word of truth."<br><span class="not-italic font-semibold text-purple-700">2 Timothy 2:15</span></p>
                             <h1 class="text-5xl font-bold text-gray-900 mb-4">Sermon Prep Made Simple</h1>
                             <p class="text-xl text-gray-600 mb-8">Get your Sunday sermon tools in minutes, so you can get back to people.</p>
                             <button onclick="goTo('${app.isLoggedIn ? 'builder' : 'signup'}')" class="bg-purple-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-purple-700">Start a Sermon</button>
