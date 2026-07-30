@@ -21,6 +21,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
         // Remap Tailwind's default 'purple' palette to a deep ink-navy scale.
         // This is the single highest-leverage change: every existing
@@ -477,8 +478,11 @@
         // null = not yet loaded, [] = loaded but empty, [...] = loaded with data
         app.projects = null;
         app.viewingProject = null;
+        app.editMode = false;
         app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false };
         app.faqOpen = null;
+        app.repurpose = { rawText: '', addons: [], loading: false, uploading: false, fileName: null };
+        const REPURPOSE_ADDON_PRICE = 4;
 
         const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/56052e96-4e99-4abe-aa3a-9c15e7d71a51/quick-tools';
         const QUICK_TOOL_PRICE = 2;
@@ -570,6 +574,146 @@
             }
             app.quickTools.loading = false;
             render();
+        }
+
+        async function handleRepurposeAudioUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            if (file.size > 20 * 1024 * 1024) {
+                setFlash('error', 'Audio file is too large - please upload a file under 20MB.');
+                render();
+                return;
+            }
+            app.repurpose.uploading = true;
+            render();
+            try {
+                const base64 = await fileToBase64(file);
+                const res = await fetch(TRANSCRIBE_AUDIO_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ audio_base64: base64, filename: file.name, user_email: app.user.email, project_id: null })
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                const data = await res.json();
+                if (!data.transcription || !data.transcription.trim()) throw new Error('No speech could be transcribed from this file.');
+                app.repurpose.rawText = data.transcription;
+                app.repurpose.fileName = file.name;
+                setFlash('success', 'Transcribed ' + data.word_count + ' words from "' + file.name + '".');
+            } catch (err) {
+                setFlash('error', "Couldn't transcribe that audio (" + err.message + ").");
+            }
+            app.repurpose.uploading = false;
+            render();
+        }
+
+        function getRepurposeTotal() {
+            return app.repurpose.addons.length * REPURPOSE_ADDON_PRICE;
+        }
+
+        async function submitRepurpose() {
+            if (!app.repurpose.rawText || !app.repurpose.rawText.trim()) {
+                setFlash('error', 'Paste your sermon text or upload an audio recording first.');
+                render();
+                return;
+            }
+            if (app.repurpose.addons.length === 0) {
+                setFlash('error', 'Select at least one thing to generate from this sermon.');
+                render();
+                return;
+            }
+            const total = getRepurposeTotal();
+            if (app.user.credits < total) {
+                setFlash('error', "You don't have enough credits for this. Buy more credits to continue.");
+                render();
+                return;
+            }
+            app.repurpose.loading = true;
+            render();
+            try {
+                const res = await fetch(REPURPOSE_SERMON_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({
+                        raw_text: app.repurpose.rawText,
+                        user_id: ensureUserId(),
+                        user_email: app.user.email,
+                        addons: app.repurpose.addons,
+                        credits_cost: total,
+                        doctrinal_position: app.sermonState.doctrinalPosition,
+                        bible_translation: app.sermonState.translation,
+                        audience: app.sermonState.audience
+                    })
+                });
+                if (!res.ok) {
+                    const errText = await res.text().catch(() => '');
+                    throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 150) : ''));
+                }
+                const data = await res.json();
+                app.user.credits -= total;
+                localStorage.setItem('user', JSON.stringify(app.user));
+                app.repurpose = { rawText: '', addons: [], loading: false, uploading: false, fileName: null };
+                setFlash('success', 'Repurposing "' + (data.structured_title || 'your sermon') + '" \u2014 check your email shortly.');
+            } catch (err) {
+                app.repurpose.loading = false;
+                setFlash('error', "Couldn't process that (" + err.message + ").");
+                render();
+                return;
+            }
+            render();
+        }
+
+        function RepurposePage() {
+            const allAddons = { ...addonPrices, ...youtubeAddonPrices };
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
+                    <div class="max-w-3xl mx-auto">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Repurpose a Sermon You Already Preached</h1>
+                        <p class="text-gray-600 mb-8">Paste your sermon text, or upload the recording, and turn it into blog posts, social content, and more \u2014 ${REPURPOSE_ADDON_PRICE} credits per item.</p>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+                            <label for="repurpose-text" class="block text-sm font-semibold text-gray-900 mb-2">Sermon Text</label>
+                            <textarea id="repurpose-text" oninput="app.repurpose.rawText = this.value" placeholder="Paste your sermon manuscript or notes here..." maxlength="20000" rows="8" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none">${app.repurpose.rawText}</textarea>
+                            <p class="text-xs text-gray-400 mt-1 text-right">${app.repurpose.rawText.length}/20000</p>
+
+                            <div class="my-4 text-center text-xs text-gray-400 uppercase tracking-wide">or</div>
+
+                            <input type="file" id="repurpose-audio-input" accept="audio/*" onchange="handleRepurposeAudioUpload(this)" class="hidden" />
+                            <label for="repurpose-audio-input" class="flex flex-col items-center justify-center border-2 border-dashed ${app.repurpose.uploading ? 'border-purple-400 bg-purple-50' : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'} rounded-lg p-6 cursor-pointer transition">
+                                <span class="text-2xl mb-1">${app.repurpose.uploading ? '\u23f3' : '\ud83c\udfa4'}</span>
+                                <span class="text-sm font-semibold text-gray-700">${app.repurpose.uploading ? 'Transcribing\u2026' : 'Upload the audio recording instead'}</span>
+                                <span class="text-xs text-gray-400 mt-1">Max 20MB</span>
+                            </label>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+                            <h2 class="font-bold text-gray-900 mb-4">What do you want to generate?</h2>
+                            <div class="grid grid-cols-2 gap-3">
+                                ${Object.entries(allAddons).map(([addon]) => `
+                                    <button onclick="
+                                        if(app.repurpose.addons.includes('${addon}')) {
+                                            app.repurpose.addons = app.repurpose.addons.filter(a => a !== '${addon}');
+                                        } else {
+                                            app.repurpose.addons.push('${addon}');
+                                        }
+                                        render();
+                                    " class="p-3 rounded-lg border-2 text-left text-sm ${app.repurpose.addons.includes(addon) ? 'border-purple-600 bg-purple-50 font-semibold' : 'border-gray-200'}">${addon}</button>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-6 flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-600">Total cost</p>
+                                <p class="text-2xl font-bold text-purple-600">${getRepurposeTotal()} credits</p>
+                                <p class="text-xs text-gray-400">You have ${app.user.credits} credits</p>
+                            </div>
+                            <button onclick="submitRepurpose()" ${app.repurpose.loading ? 'disabled' : ''} class="bg-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
+                                ${app.repurpose.loading ? 'Processing\u2026' : 'Generate'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         function QuickToolsPage() {
@@ -695,6 +839,7 @@
                                 <button type="button" onclick="goTo('dashboard')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Dashboard</button>
                                 <button type="button" onclick="openSermonLibrary()" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Sermon Library</button>
                                 <button type="button" onclick="goTo('quick-tools')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Quick Tools</button>
+                                <button type="button" onclick="goTo('repurpose')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Repurpose a Sermon</button>
                                 <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
                                 <button type="button" onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
                             ` : `
@@ -972,16 +1117,248 @@
             `;
         }
 
+        const UPDATE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/cfc8d69a-1bcf-4ada-a2d4-af4b033dd99a/update-sermon';
+        const REPURPOSE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/6511e84c-9edb-4cb1-82d8-0d4512110e72/repurpose-sermon';
+
+        function toggleEditMode() {
+            app.editMode = !app.editMode;
+            render();
+        }
+
+        function readEditedSermonFromForm() {
+            const s = { ...app.viewingProject.sermon_json };
+            const val = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
+            if (document.getElementById('edit-title')) s.title = val('edit-title');
+            if (document.getElementById('edit-scripture')) s.scripture_reference = val('edit-scripture');
+            if (document.getElementById('edit-big-idea')) s.big_idea = val('edit-big-idea');
+            if (document.getElementById('edit-introduction')) s.introduction = val('edit-introduction');
+            if (document.getElementById('edit-conclusion')) s.conclusion = val('edit-conclusion');
+            if (s.main_points) {
+                s.main_points = s.main_points.map((pt, i) => ({
+                    ...pt,
+                    point: val('edit-point-' + i) ?? pt.point,
+                    explanation: val('edit-point-explanation-' + i) ?? pt.explanation
+                }));
+            }
+            if (document.getElementById('edit-takeaways')) {
+                s.key_takeaways = val('edit-takeaways').split('\n').map(t => t.trim()).filter(Boolean);
+            }
+            if (document.getElementById('edit-questions')) {
+                s.discussion_questions = val('edit-questions').split('\n').map(t => t.trim()).filter(Boolean);
+            }
+            return s;
+        }
+
+        async function saveSermonEdits() {
+            const updated = readEditedSermonFromForm();
+            try {
+                const res = await fetch(UPDATE_SERMON_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ project_id: app.viewingProject.id, sermon_json: updated })
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                app.viewingProject.sermon_json = updated;
+                if (app.projects) {
+                    const p = app.projects.find(pr => pr.id === app.viewingProject.id);
+                    if (p) { p.sermon_json = updated; p.title = updated.title; }
+                }
+                app.editMode = false;
+                setFlash('success', 'Your changes were saved.');
+            } catch (err) {
+                setFlash('error', "Couldn't save your changes (" + err.message + ").");
+            }
+            render();
+        }
+
+        function sermonToPlainText(s) {
+            let lines = [];
+            lines.push(s.title || 'Untitled Sermon');
+            if (s.scripture_reference) lines.push(s.scripture_reference);
+            lines.push('');
+            if (s.big_idea) { lines.push('BIG IDEA'); lines.push(s.big_idea); lines.push(''); }
+            if (s.introduction) { lines.push('INTRODUCTION'); lines.push(s.introduction); lines.push(''); }
+            if ((s.main_points || []).length) {
+                lines.push('MAIN POINTS');
+                s.main_points.forEach((pt, i) => {
+                    lines.push((i + 1) + '. ' + pt.point);
+                    lines.push(pt.explanation || '');
+                    if (pt.scripture) lines.push('Scripture: ' + pt.scripture);
+                    if (pt.application) lines.push('Application: ' + pt.application);
+                    lines.push('');
+                });
+            }
+            if ((s.verse_by_verse_commentary || []).length) {
+                lines.push('VERSE-BY-VERSE COMMENTARY');
+                s.verse_by_verse_commentary.forEach(v => { lines.push(v.verse + ': ' + v.commentary); });
+                lines.push('');
+            }
+            if (s.conclusion) { lines.push('CONCLUSION'); lines.push(s.conclusion); lines.push(''); }
+            if ((s.key_takeaways || []).length) {
+                lines.push('KEY TAKEAWAYS');
+                s.key_takeaways.forEach(t => lines.push('- ' + t));
+                lines.push('');
+            }
+            if ((s.discussion_questions || []).length) {
+                lines.push('DISCUSSION QUESTIONS');
+                s.discussion_questions.forEach((q, i) => lines.push((i + 1) + '. ' + q));
+            }
+            return lines.join('\n');
+        }
+
+        function downloadAsWord() {
+            const s = app.viewingProject.sermon_json;
+            const text = sermonToPlainText(s).split('\n').map(l => l ? `<p>${l}</p>` : '<p>&nbsp;</p>').join('');
+            const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+                <head><meta charset="utf-8"><title>${s.title || 'Sermon'}</title></head>
+                <body style="font-family:Georgia,serif;">${text}</body></html>`;
+            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = (s.title || 'sermon').replace(/[^a-z0-9]/gi, '_') + '.doc';
+            link.click();
+            trackEvent('export_word', { page: 'sermon-viewer' });
+        }
+
+        function downloadAsPdf() {
+            const s = app.viewingProject.sermon_json;
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+            const margin = 56;
+            const maxWidth = 500;
+            let y = margin;
+            const lineHeight = 16;
+
+            function addText(text, size, style) {
+                doc.setFontSize(size);
+                doc.setFont('times', style || 'normal');
+                const lines = doc.splitTextToSize(text, maxWidth);
+                lines.forEach(line => {
+                    if (y > 720) { doc.addPage(); y = margin; }
+                    doc.text(line, margin, y);
+                    y += lineHeight;
+                });
+            }
+
+            addText(s.title || 'Untitled Sermon', 20, 'bold');
+            if (s.scripture_reference) addText(s.scripture_reference, 12, 'italic');
+            y += 8;
+            if (s.big_idea) { addText('BIG IDEA', 11, 'bold'); addText(s.big_idea, 11); y += 8; }
+            if (s.introduction) { addText('INTRODUCTION', 11, 'bold'); addText(s.introduction, 11); y += 8; }
+            (s.main_points || []).forEach((pt, i) => {
+                addText((i + 1) + '. ' + pt.point, 12, 'bold');
+                addText(pt.explanation || '', 11);
+                if (pt.scripture) addText('Scripture: ' + pt.scripture, 10, 'italic');
+                if (pt.application) addText('Application: ' + pt.application, 10);
+                y += 6;
+            });
+            (s.verse_by_verse_commentary || []).forEach(v => {
+                addText(v.verse, 11, 'bold');
+                addText(v.commentary, 11);
+                y += 4;
+            });
+            if (s.conclusion) { addText('CONCLUSION', 11, 'bold'); addText(s.conclusion, 11); y += 8; }
+            if ((s.key_takeaways || []).length) {
+                addText('KEY TAKEAWAYS', 11, 'bold');
+                s.key_takeaways.forEach(t => addText('\u2022 ' + t, 11));
+                y += 8;
+            }
+            if ((s.discussion_questions || []).length) {
+                addText('DISCUSSION QUESTIONS', 11, 'bold');
+                s.discussion_questions.forEach((q, i) => addText((i + 1) + '. ' + q, 11));
+            }
+
+            doc.save((s.title || 'sermon').replace(/[^a-z0-9]/gi, '_') + '.pdf');
+            trackEvent('export_pdf', { page: 'sermon-viewer' });
+        }
+
         function SermonViewerPage() {
             const p = app.viewingProject;
             if (!p || !p.sermon_json) {
                 return `<div class="pt-20 min-h-screen bg-gray-50 px-6 py-8"><div class="max-w-3xl mx-auto text-center text-gray-500 p-12">Sermon not found. <a onclick="goTo('dashboard')" class="text-purple-600 underline cursor-pointer">Back to dashboard</a></div></div>`;
             }
             const s = p.sermon_json;
+            const editing = app.editMode;
+
+            const toolbar = `
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <button onclick="goTo('dashboard')" class="text-sm text-purple-600 hover:underline cursor-pointer bg-transparent border-0 p-0">\u2190 Back to Dashboard</button>
+                    <div class="flex gap-2">
+                        ${editing ? `
+                            <button onclick="saveSermonEdits()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-purple-700">Save Changes</button>
+                            <button onclick="toggleEditMode()" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50">Cancel</button>
+                        ` : `
+                            <button onclick="toggleEditMode()" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50">Edit</button>
+                            <button onclick="downloadAsWord()" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50">Download Word</button>
+                            <button onclick="downloadAsPdf()" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50">Download PDF</button>
+                        `}
+                    </div>
+                </div>
+            `;
+
+            if (editing) {
+                return `
+                    <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
+                        <div class="max-w-3xl mx-auto">
+                            ${toolbar}
+                            <div class="bg-white rounded-2xl border border-gray-200 p-8 space-y-5">
+                                <div>
+                                    <label for="edit-title" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Title</label>
+                                    <input id="edit-title" value="${(s.title || '').replace(/"/g, '&quot;')}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-lg font-bold" />
+                                </div>
+                                <div>
+                                    <label for="edit-scripture" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Scripture Reference</label>
+                                    <input id="edit-scripture" value="${(s.scripture_reference || '').replace(/"/g, '&quot;')}" class="w-full px-3 py-2 border border-gray-200 rounded-lg" />
+                                </div>
+                                <div>
+                                    <label for="edit-big-idea" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Big Idea</label>
+                                    <textarea id="edit-big-idea" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg">${s.big_idea || ''}</textarea>
+                                </div>
+                                ${s.introduction !== undefined ? `
+                                    <div>
+                                        <label for="edit-introduction" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Introduction</label>
+                                        <textarea id="edit-introduction" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg">${s.introduction || ''}</textarea>
+                                    </div>
+                                ` : ''}
+                                ${(s.main_points || []).length > 0 ? `
+                                    <div>
+                                        <p class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Main Points</p>
+                                        ${s.main_points.map((pt, i) => `
+                                            <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                                                <input id="edit-point-${i}" value="${(pt.point || '').replace(/"/g, '&quot;')}" class="w-full px-2 py-1 border border-gray-200 rounded font-semibold text-sm" />
+                                                <textarea id="edit-point-explanation-${i}" rows="2" class="w-full px-2 py-1 border border-gray-200 rounded text-sm">${pt.explanation || ''}</textarea>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                ` : ''}
+                                ${s.conclusion !== undefined ? `
+                                    <div>
+                                        <label for="edit-conclusion" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Conclusion</label>
+                                        <textarea id="edit-conclusion" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg">${s.conclusion || ''}</textarea>
+                                    </div>
+                                ` : ''}
+                                ${(s.key_takeaways || []).length > 0 ? `
+                                    <div>
+                                        <label for="edit-takeaways" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Key Takeaways (one per line)</label>
+                                        <textarea id="edit-takeaways" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg">${s.key_takeaways.join('\n')}</textarea>
+                                    </div>
+                                ` : ''}
+                                ${(s.discussion_questions || []).length > 0 ? `
+                                    <div>
+                                        <label for="edit-questions" class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Discussion Questions (one per line)</label>
+                                        <textarea id="edit-questions" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg">${s.discussion_questions.join('\n')}</textarea>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
                     <div class="max-w-3xl mx-auto">
-                        <button onclick="goTo('dashboard')" class="text-sm text-purple-600 hover:underline mb-4 cursor-pointer bg-transparent border-0 p-0">\u2190 Back to Dashboard</button>
+                        ${toolbar}
                         <div class="bg-white rounded-2xl border border-gray-200 p-8">
                             <h1 class="text-3xl font-bold text-gray-900 mb-2">${s.title || 'Untitled Sermon'}</h1>
                             <p class="text-purple-600 font-semibold mb-6">${s.scripture_reference || ''}</p>
@@ -1703,6 +2080,7 @@
             else if (app.currentPage === 'dashboard') content = app.isLoggedIn ? DashboardPage() : HomePage();
             else if (app.currentPage === 'sermon-viewer') content = app.isLoggedIn ? SermonViewerPage() : HomePage();
             else if (app.currentPage === 'quick-tools') content = app.isLoggedIn ? QuickToolsPage() : HomePage();
+            else if (app.currentPage === 'repurpose') content = app.isLoggedIn ? RepurposePage() : HomePage();
             else if (app.currentPage === 'pricing') content = PricingPage();
             else if (app.currentPage === 'builder') content = app.isLoggedIn ? BuilderPage() : SignupPage();
             else if (app.currentPage === 'about') content = PricingPageComplete();
