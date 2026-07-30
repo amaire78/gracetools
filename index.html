@@ -408,11 +408,12 @@
             }
 
             const destinationEmail = app.user.email; // account email, explicitly
+            const projectId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('proj-' + Date.now());
 
             const payload = {
                 user_id: ensureUserId(),
                 user_email: destinationEmail,
-                project_id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('proj-' + Date.now()),
+                project_id: projectId,
                 input_type: app.sermonState.inputType,
                 input_content: app.sermonState.inputContent || 'Romans 8:1-4',
                 base_package: app.sermonState.package,
@@ -427,7 +428,7 @@
                 addons: app.sermonState.addons
             };
 
-            setFlash('info', 'Submitting your sermon \u2014 it will be generated and emailed to ' + destinationEmail + '. This usually takes 30-90 seconds.');
+            setFlash('info', 'Submitting your sermon...');
             render();
 
             try {
@@ -442,11 +443,72 @@
                 }
                 app.user.credits -= total;
                 localStorage.setItem('user', JSON.stringify(app.user));
-                setFlash('success', 'Your sermon is generating now and will be emailed to ' + destinationEmail + ' shortly.');
+                app.generatingProjectId = projectId;
+                app.generatingStartedAt = Date.now();
+                app.currentPage = 'generating';
+                render();
+                pollForCompletion(projectId);
             } catch (err) {
                 setFlash('error', "Your sermon couldn't be submitted (" + err.message + "). Your credits were NOT charged \u2014 please try again or contact support@gracetools.com.");
+                goTo('dashboard');
             }
-            goTo('dashboard');
+        }
+
+        async function pollForCompletion(projectId, attempt) {
+            attempt = attempt || 1;
+            const MAX_ATTEMPTS = 40; // ~2 minutes at 3s intervals
+
+            if (app.currentPage !== 'generating' || app.generatingProjectId !== projectId) {
+                return; // user navigated away - stop polling
+            }
+
+            if (attempt > MAX_ATTEMPTS) {
+                setFlash('info', "This is taking longer than usual \u2014 we'll email it to you as soon as it's ready. You can check your dashboard anytime.");
+                goTo('dashboard');
+                return;
+            }
+
+            try {
+                const res = await fetch(LIST_PROJECTS_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ user_id: ensureUserId() })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const project = (data.projects || []).find(p => p.id === projectId);
+                    if (project && project.status === 'ready') {
+                        app.viewingProject = project;
+                        app.currentPage = 'sermon-viewer';
+                        setFlash('success', 'Your sermon is ready!');
+                        render();
+                        return;
+                    }
+                    if (project && project.status === 'failed') {
+                        setFlash('error', "Generation failed \u2014 your credits were refunded. Please try again.");
+                        goTo('dashboard');
+                        return;
+                    }
+                }
+            } catch (err) {
+                // Transient network error during polling - just retry, don't fail the whole flow
+            }
+
+            setTimeout(() => pollForCompletion(projectId, attempt + 1), 3000);
+        }
+
+        function GeneratingPage() {
+            const elapsedSeconds = Math.floor((Date.now() - (app.generatingStartedAt || Date.now())) / 1000);
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 flex items-center justify-center">
+                    <div class="max-w-md mx-auto text-center">
+                        <div class="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-6"></div>
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Building your sermon...</h1>
+                        <p class="text-gray-600 mb-1">This usually takes 30-90 seconds.</p>
+                        <p class="text-xs text-gray-400">Elapsed: ${elapsedSeconds}s \u2014 a copy is also being emailed to ${app.user.email}</p>
+                    </div>
+                </div>
+            `;
         }
 
         function saveAccount() {
@@ -479,6 +541,8 @@
         app.projects = null;
         app.viewingProject = null;
         app.editMode = false;
+        app.generatingProjectId = null;
+        app.generatingStartedAt = null;
         app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false };
         app.faqOpen = null;
         app.repurpose = { rawText: '', addons: [], loading: false, uploading: false, fileName: null };
@@ -2141,6 +2205,7 @@
             else if (app.currentPage === 'forgot-password') content = ForgotPasswordPage();
             else if (app.currentPage === 'dashboard') content = app.isLoggedIn ? DashboardPage() : HomePage();
             else if (app.currentPage === 'sermon-viewer') content = app.isLoggedIn ? SermonViewerPage() : HomePage();
+            else if (app.currentPage === 'generating') content = app.isLoggedIn ? GeneratingPage() : HomePage();
             else if (app.currentPage === 'quick-tools') content = app.isLoggedIn ? QuickToolsPage() : HomePage();
             else if (app.currentPage === 'repurpose') content = app.isLoggedIn ? RepurposePage() : HomePage();
             else if (app.currentPage === 'pricing') content = PricingPage();
