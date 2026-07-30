@@ -1694,10 +1694,43 @@
             `;
         }
 
+        const REDEEM_PROMO_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/redeem-promo';
+
+        async function redeemPromoCode() {
+            const codeInput = document.getElementById('promo-code-input');
+            const code = codeInput.value.trim();
+            if (!code) {
+                setFlash('error', 'Enter a promo code first.');
+                render();
+                return;
+            }
+            try {
+                const res = await fetch(REDEEM_PROMO_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({ code, user_id: ensureUserId() })
+                });
+                if (!res.ok) {
+                    const errText = await res.text().catch(() => '');
+                    let message = 'That code could not be redeemed.';
+                    try { message = JSON.parse(errText).message || message; } catch (e) {}
+                    throw new Error(message);
+                }
+                const data = await res.json();
+                app.user.credits += data.credits_granted;
+                localStorage.setItem('user', JSON.stringify(app.user));
+                codeInput.value = '';
+                setFlash('success', `Success! ${data.credits_granted} credits added to your account.`);
+            } catch (err) {
+                setFlash('error', err.message);
+            }
+            render();
+        }
+
         function AccountPage() {
             return `
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
-                    <div class="max-w-3xl mx-auto">
+                    <div class="max-w-3xl mx-auto space-y-6">
                         <div class="bg-white rounded-2xl border border-gray-200 p-8">
                             <h2 class="text-2xl font-bold text-gray-900 mb-6">Account Settings</h2>
                             <div class="space-y-6">
@@ -1714,6 +1747,15 @@
                                     <input id="acct-church" type="text" value="${app.user.church}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
                                 </div>
                                 <button type="button" onclick="saveAccount()" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Save Changes</button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8">
+                            <h2 class="text-lg font-bold text-gray-900 mb-1">Have a Promo Code?</h2>
+                            <p class="text-sm text-gray-600 mb-4">Redeem it here to add free credits to your account. You have <strong>${app.user.credits} credits</strong> right now.</p>
+                            <div class="flex gap-3">
+                                <input id="promo-code-input" type="text" placeholder="Enter code" class="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 uppercase" />
+                                <button type="button" onclick="redeemPromoCode()" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Redeem</button>
                             </div>
                         </div>
                     </div>
