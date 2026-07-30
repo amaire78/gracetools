@@ -1772,7 +1772,7 @@
                 const res = await fetch(REDEEM_PROMO_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ code, user_id: ensureUserId() })
+                    body: JSON.stringify({ code, user_id: ensureUserId(), user_email: app.user.email })
                 });
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
