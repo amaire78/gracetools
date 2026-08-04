@@ -131,7 +131,7 @@
         }
 
         // Navigation
-        const TRACK_EVENT_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/f00aef88-9492-457c-9087-19bf173debe6/track-event';
+        const TRACK_EVENT_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/track-event;
 
         function trackEvent(action, extra) {
             // Fire-and-forget - never let analytics failures affect the user experience
@@ -202,7 +202,7 @@
         // one webhook, which upserts into the real Supabase users table and
         // always returns the canonical row (real id + real credits_balance).
         // This is what completeCheckout's credit deduction depends on.
-        const CREATE_USER_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/0f43fdcb-2707-4796-9a7e-312f11e44f73/create-user';
+        const CREATE_USER_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/create-user';
 
         // Shared key required by every GraceTools webhook. Note: since this
         // ships in client-side JS, a determined attacker could still extract
@@ -309,9 +309,9 @@
         // always the account's email (set at signup, editable on Account page),
         // never anything typed elsewhere. This guarantees the finished sermon
         // is always emailed to whatever address the customer has on file.
-        const SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/gracetools-sermon-gen/generate-sermon';
-        const EXTRACT_PDF_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/a6c80bd3-d08a-4a6a-b4d8-1374aebc7699/extract-pdf';
-        const TRANSCRIBE_AUDIO_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/ae6e2a46-e139-42c5-bc27-e1c6fd457a11/transcribe-audio';
+        const SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/generate-sermon';
+        const EXTRACT_PDF_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/extract-pdf';
+        const TRANSCRIBE_AUDIO_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/transcribe-audio';
 
         app.uploadState = { uploading: false, error: null, fileName: null };
 
@@ -538,7 +538,7 @@
             render();
         }
 
-        const LIST_PROJECTS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/6fe57b4e-bb9f-4049-b6b8-ceb56cad70e0/list-projects';
+        const LIST_PROJECTS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/list-projects';
 
         // Real project data, replacing the old hardcoded mockProjects.
         // null = not yet loaded, [] = loaded but empty, [...] = loaded with data
@@ -552,7 +552,7 @@
         app.repurpose = { rawText: '', addons: [], loading: false, uploading: false, fileName: null };
         const REPURPOSE_ADDON_PRICE = 4;
 
-        const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/56052e96-4e99-4abe-aa3a-9c15e7d71a51/quick-tools';
+        const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/quick-tools';
         const QUICK_TOOL_PRICE = 2;
         const QUICK_TOOLS = [
             { key: 'sermon_title', label: 'Sermon Title Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4 or "walking by faith"' },
@@ -1185,8 +1185,8 @@
             `;
         }
 
-        const UPDATE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/cfc8d69a-1bcf-4ada-a2d4-af4b033dd99a/update-sermon';
-        const REPURPOSE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/6511e84c-9edb-4cb1-82d8-0d4512110e72/repurpose-sermon';
+        const UPDATE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/update-sermon';
+        const REPURPOSE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/repurpose-sermon';
 
         function toggleEditMode() {
             app.editMode = !app.editMode;
@@ -2043,7 +2043,7 @@
             `;
         }
 
-        const CONTACT_FORM_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/db16fa56-3123-4c2f-8523-b2ab23539019/contact-form';
+        const CONTACT_FORM_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/contact-form';
 
         async function submitContactForm() {
             const name = document.getElementById('contact-name').value;
