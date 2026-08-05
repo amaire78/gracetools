@@ -93,7 +93,7 @@
         const packagePrices = { essentials: 15, preacher: 35, master: 65 };
         const addonPrices = { 'Youth Version': 8, 'Small Group Guide': 10, 'Blog Article': 6, 'Social Posts': 5, 'Discussion Questions': 7, 'Printable': 5 };
         const youtubeAddonPrices = { 'YouTube Title & Thumbnail': 5, 'YouTube Description': 4, 'YouTube Tags': 2, 'YouTube Chapters': 4, 'YouTube Hook': 3 };
-        const FACT_CHECKER_PRICE = 8;
+        const FACT_CHECKER_PRICE = 0;
         const ALL_ADDON_PRICES = { ...addonPrices, ...youtubeAddonPrices, 'Fact Checker': FACT_CHECKER_PRICE };
 
         const inputTypes = [
@@ -410,7 +410,17 @@
                 render();
                 return;
             }
-
+const content = (app.sermonState.inputContent || '').trim();
+            if (!content) {
+                setFlash('error', 'Please add a starting point first — a passage, topic, notes, or a link.');
+                render();
+                return;
+            }
+            if (app.sermonState.inputType === 'youtube' && !/^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)/i.test(content)) {
+                setFlash('error', 'That doesn\'t look like a YouTube video link. It should start with youtube.com/watch or youtu.be — search-result links from Yahoo, Bing, or Google won\'t work. Open the video on YouTube and copy the address bar.');
+                render();
+                return;
+            }
             const destinationEmail = app.user.email; // account email, explicitly
             const projectId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('proj-' + Date.now());
 
