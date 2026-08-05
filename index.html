@@ -465,6 +465,7 @@
             if (app.currentPage !== 'generating' || app.generatingProjectId !== projectId) {
                 return; // user navigated away - stop polling
             }
+            render();
 
             if (attempt > MAX_ATTEMPTS) {
                 setFlash('info', "This is taking longer than usual \u2014 we'll email it to you as soon as it's ready. You can check your dashboard anytime.");
