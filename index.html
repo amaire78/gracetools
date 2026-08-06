@@ -565,6 +565,8 @@ const content = (app.sermonState.inputContent || '').trim();
 
         const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/quick-tools';
         const QUICK_TOOL_PRICE = 2;
+        // Tools that return three genuinely different options to choose from.
+        const MULTI_OPTION_TOOLS = ['sermon_title', 'big_idea', 'introduction', 'conclusion', 'closing_prayer', 'illustration_finder', 'devotional', 'announcement_writer', 'bulletin_writer', 'email_writer'];
         const QUICK_TOOLS = [
             { key: 'sermon_title', label: 'Sermon Title Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4 or "walking by faith"' },
             { key: 'big_idea', label: 'Big Idea Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4' },
@@ -802,8 +804,8 @@ const content = (app.sermonState.inputContent || '').trim();
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
                     <div class="max-w-4xl mx-auto">
                         <h1 class="text-3xl font-bold text-gray-900 mb-2">Quick Tools</h1>
-                        <p class="text-gray-600 mb-8">20 standalone tools for sermon prep, Bible study, and church writing \u2014 ${QUICK_TOOL_PRICE} credits each</p>
-
+                       <p class="text-gray-600 mb-2">20 standalone tools for sermon prep, Bible study, and church writing \u2014 ${QUICK_TOOL_PRICE} credits each</p>
+                        <p class="text-sm text-purple-700 mb-8">Tools marked <strong>3 options</strong> give you three genuinely different versions to choose from \u2014 not three rewordings.</p>
                         <div class="grid lg:grid-cols-3 gap-8">
                             <div class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4 h-fit">
                                 ${categories.map(cat => `
@@ -819,7 +821,7 @@ const content = (app.sermonState.inputContent || '').trim();
                             <div class="lg:col-span-2">
                                 <div class="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
                                     <h2 class="font-bold text-gray-900 mb-1">${currentTool.label}</h2>
-                                    <p class="text-sm text-gray-500 mb-4">+${QUICK_TOOL_PRICE} credits per use \u2022 You have ${app.user.credits} credits</p>
+                                    <p class="text-sm text-gray-500 mb-4">+${QUICK_TOOL_PRICE} credits per use \u2022 You have ${app.user.credits} credits${MULTI_OPTION_TOOLS.includes(currentTool.key) ? ' \u2022 <span class="text-purple-700 font-semibold">Returns 3 options</span>' : ''}</p>
                                     <textarea id="quick-tool-input" oninput="app.quickTools.inputContent = this.value" placeholder="${currentTool.placeholder}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4">${app.quickTools.inputContent}</textarea>
                                     <button onclick="submitQuickTool()" ${app.quickTools.loading ? 'disabled' : ''} class="mt-4 bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
                                         ${app.quickTools.loading ? 'Generating\u2026' : 'Generate'}
@@ -1010,7 +1012,7 @@ const content = (app.sermonState.inputContent || '').trim();
                     <section class="bg-gray-50 px-6 py-16">
                         <div class="max-w-2xl mx-auto text-center">
                             <h2 class="text-2xl font-bold text-gray-900 mb-4">Preach with Confidence</h2>
-                            <p class="text-gray-600 mb-4">Every sermon can include a built-in <strong>Fact Checker</strong> pass — a second review that checks your scripture citations and doctrinal consistency before Sunday morning, so you catch anything worth a second look while you still have time to fix it.</p>
+                           <p class="text-gray-600 mb-4">Every sermon can include a built-in <strong>Fact Checker</strong> pass — <strong class="text-green-700">free on every sermon</strong>
                             <p class="text-gray-600">It won't rewrite a word of your message. It just gives you the confidence of a second set of eyes, every time.</p>
                         </div>
                     </section>
