@@ -83,7 +83,7 @@
                 inputContent: '',
                 translation: 'KJV',
                 audience: 'Sunday Morning - Mixed',
-                doctrinalPosition: 'Mid-Acts Dispensational',
+                doctrinalPosition: 'Non-Denominational Evangelical',
                 readingLevel: 'Standard',
                 citationMode: 'Reference Only'
             },
@@ -92,7 +92,7 @@
 
         const packagePrices = { essentials: 15, preacher: 35, master: 65 };
         const addonPrices = { 'Youth Version': 8, 'Small Group Guide': 10, 'Blog Article': 6, 'Social Posts': 5, 'Discussion Questions': 7, 'Printable': 5 };
-        const youtubeAddonPrices = { 'YouTube Title & Thumbnail': 5, 'YouTube Description': 4, 'YouTube Tags': 2, 'YouTube Chapters': 4, 'YouTube Hook': 3 };
+        const youtubeAddonPrices = { 'YouTube Title & Thumbnail Ideas': 5, 'YouTube Description': 4, 'YouTube Tags': 2, 'YouTube Chapters': 4, 'YouTube Hook': 3 };
         const FACT_CHECKER_PRICE = 0;
         const ALL_ADDON_PRICES = { ...addonPrices, ...youtubeAddonPrices, 'Fact Checker': FACT_CHECKER_PRICE };
 
@@ -106,7 +106,7 @@
         ];
         const translations = ['KJV', 'NASB', 'NKJV', 'ESV', 'NIV'];
         const audiences = ['Sunday Morning - Mixed', 'Youth Service', 'Small Group / Bible Study', 'Funeral / Memorial', 'Wedding', "Men's / Women's Ministry"];
-        const doctrinalPositions = ['Mid-Acts Dispensational', 'Baptist', 'Reformed / Calvinist', 'Wesleyan / Arminian', 'Pentecostal / Charismatic', 'Non-Denominational / Evangelical'];
+        const doctrinalPositions = ['Roman Catholic', 'Eastern Orthodox', 'Anglican', 'Lutheran', 'Reformed', 'Baptist', 'Methodist', 'Pentecostal / Charismatic', 'Non-Denominational Evangelical', 'Acts 2 Dispensational', 'Mid-Acts Dispensational'];
         const readingLevels = ['Simple / Accessible', 'Standard', 'Scholarly / Academic'];
         const citationModes = ['Reference Only', 'Full Verse Text'];
         const packageRecommendedDuration = { essentials: [15, 30], preacher: [30, 45, 60], master: [45, 60, 90] };
@@ -287,8 +287,15 @@
             goTo('home');
         }
 
+        // Longer sermons cost proportionally more to generate, so the base package
+        // scales with length. Add-ons don't scale - a social post is the same work
+        // whether the sermon was 15 minutes or 90.
+        const DURATION_MULTIPLIERS = { 15: 1, 30: 1, 45: 1.5, 60: 1.5, 90: 2 };
+        function durationMultiplier(mins) { return DURATION_MULTIPLIERS[mins] || 1; }
+
         function getSermonTotal() {
-            let total = packagePrices[app.sermonState.package];
+            const mult = durationMultiplier(app.sermonState.duration);
+            let total = Math.ceil(packagePrices[app.sermonState.package] * mult);
             app.sermonState.addons.forEach(addon => { total += ALL_ADDON_PRICES[addon] || 0; });
             return total;
         }
@@ -442,8 +449,15 @@ const content = (app.sermonState.inputContent || '').trim();
                 addons: app.sermonState.addons
             };
 
-            setFlash('info', 'Submitting your sermon...');
+            // Switch to the generating screen BEFORE the network call. The webhook
+            // can take 10-15 seconds to respond, and sitting on the checkout page
+            // that whole time makes people think the button didn't register and
+            // click it again - which fires duplicate generations.
+            app.generatingProjectId = projectId;
+            app.generatingStartedAt = Date.now();
+            app.currentPage = 'generating';
             render();
+            startGeneratingTicker();
 
             try {
                 const res = await fetch(SERMON_WEBHOOK_URL, {
@@ -457,15 +471,24 @@ const content = (app.sermonState.inputContent || '').trim();
                 }
                 app.user.credits -= total;
                 localStorage.setItem('user', JSON.stringify(app.user));
-                app.generatingProjectId = projectId;
-                app.generatingStartedAt = Date.now();
-                app.currentPage = 'generating';
-                render();
                 pollForCompletion(projectId);
             } catch (err) {
                 setFlash('error', "Your sermon couldn't be submitted (" + err.message + "). Your credits were NOT charged \u2014 please try again or contact support@gracetools.com.");
                 goTo('dashboard');
             }
+        }
+
+        let generatingTicker = null;
+        function startGeneratingTicker() {
+            if (generatingTicker) clearInterval(generatingTicker);
+            generatingTicker = setInterval(function () {
+                if (app.currentPage !== 'generating') {
+                    clearInterval(generatingTicker);
+                    generatingTicker = null;
+                    return;
+                }
+                render();
+            }, 1000);
         }
 
         async function pollForCompletion(projectId, attempt) {
@@ -495,7 +518,7 @@ const content = (app.sermonState.inputContent || '').trim();
                     if (project && project.status === 'ready') {
                         app.viewingProject = project;
                         app.currentPage = 'sermon-viewer';
-                        setFlash('success', 'Your sermon is ready!');
+                        setFlash('success', 'Your sermon is ready \u2014 it is shown below, and a copy has been emailed to ' + app.user.email + '.');
                         render();
                         return;
                     }
@@ -518,9 +541,10 @@ const content = (app.sermonState.inputContent || '').trim();
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 flex items-center justify-center">
                     <div class="max-w-md mx-auto text-center">
                         <div class="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-6"></div>
-                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Building your sermon...</h1>
-                        <p class="text-gray-600 mb-1">This usually takes 30-90 seconds.</p>
-                        <p class="text-xs text-gray-400">Elapsed: ${elapsedSeconds}s \u2014 a copy is also being emailed to ${app.user.email}</p>
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Building your sermon\u2026</h1>
+                        <p class="text-gray-600 mb-1">This usually takes 30\u201390 seconds. You can leave this page \u2014 it will still be emailed to you.</p>
+                        <p class="text-sm text-purple-700 font-semibold mt-4">A copy is being sent to ${app.user.email}</p>
+                        <p class="text-xs text-gray-400 mt-2">Elapsed: ${elapsedSeconds}s</p>
                     </div>
                 </div>
             `;
@@ -558,13 +582,18 @@ const content = (app.sermonState.inputContent || '').trim();
         app.editMode = false;
         app.generatingProjectId = null;
         app.generatingStartedAt = null;
-        app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false, translation: 'KJV', doctrinalPosition: 'Mid-Acts Dispensational' };
+        app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false, translation: 'KJV', doctrinalPosition: 'Non-Denominational Evangelical' };
         app.faqOpen = null;
         app.repurpose = { rawText: '', addons: [], loading: false, uploading: false, fileName: null };
         const REPURPOSE_ADDON_PRICE = 4;
 
         const QUICK_TOOLS_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/quick-tools';
         const QUICK_TOOL_PRICE = 2;
+        // Free tools exist to get a pastor using GraceTools before they ever pay.
+        // Chosen to show off doctrinal framing (verse explanation), give an instant
+        // win (titles, big ideas), and cover a weekly chore (announcements).
+        const FREE_QUICK_TOOLS = ['sermon_title', 'big_idea', 'verse_explanation', 'announcement_writer'];
+        function quickToolCost(key) { return FREE_QUICK_TOOLS.includes(key) ? 0 : QUICK_TOOL_PRICE; }
         const MULTI_OPTION_TOOLS = ['sermon_title', 'big_idea', 'introduction', 'conclusion', 'closing_prayer', 'illustration_finder', 'devotional', 'announcement_writer', 'bulletin_writer', 'email_writer'];
         const QUICK_TOOLS = [
             { key: 'sermon_title', label: 'Sermon Title Generator', category: 'Sermon Building', placeholder: 'e.g. Romans 8:1-4 or "walking by faith"' },
@@ -653,7 +682,8 @@ const content = (app.sermonState.inputContent || '').trim();
                 render();
                 return;
             }
-            if (app.user.credits < QUICK_TOOL_PRICE) {
+            const toolCost = quickToolCost(app.quickTools.selectedTool);
+            if (app.user.credits < toolCost) {
                 setFlash('error', "You don't have enough credits for this. Buy more credits to continue.");
                 render();
                 return;
@@ -679,7 +709,7 @@ const content = (app.sermonState.inputContent || '').trim();
                 }
                 const data = await res.json();
                 app.quickTools.result = data.result;
-                app.user.credits -= QUICK_TOOL_PRICE;
+                app.user.credits -= toolCost;
                 localStorage.setItem('user', JSON.stringify(app.user));
             } catch (err) {
                 app.quickTools.loading = false;
@@ -839,16 +869,16 @@ const content = (app.sermonState.inputContent || '').trim();
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 py-8">
                     <div class="max-w-6xl mx-auto">
                         <h1 class="text-3xl font-bold text-gray-900 mb-2">Quick Tools</h1>
-                        <p class="text-gray-600 mb-2">20 standalone tools for sermon prep, Bible study, and church writing — ${QUICK_TOOL_PRICE} credits each</p>
+                        <p class="text-gray-600 mb-2">20 standalone tools for sermon prep, Bible study, and church writing — ${QUICK_TOOL_PRICE} credits each, and four are free</p>
                         <p class="text-sm text-purple-700 mb-8">Tools marked <strong>3 options</strong> give you three genuinely different versions to choose from.</p>
 
                         <div class="grid lg:grid-cols-3 gap-8 items-start">
-                            <div class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4">
+                            <div class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                                 ${categories.map(cat => '<div class="mb-4"><p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 px-2">' + cat + '</p>'
                                     + QUICK_TOOLS.filter(t => t.category === cat).map(t =>
                                         '<button onclick="app.quickTools.selectedTool=&#39;' + t.key + '&#39;; app.quickTools.result=null; render();" class="w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ' + (app.quickTools.selectedTool === t.key ? 'bg-purple-100 text-purple-700 font-semibold' : 'text-gray-700 hover:bg-gray-50') + '">'
                                         + t.label
-                                        + (MULTI_OPTION_TOOLS.includes(t.key) ? ' <span class=\"text-xs text-purple-400\">(3)</span>' : '')
+                                        + (FREE_QUICK_TOOLS.includes(t.key) ? ' <span class=\"text-xs text-green-600 font-semibold\">Free</span>' : '') + (MULTI_OPTION_TOOLS.includes(t.key) ? ' <span class=\"text-xs text-purple-400\">(3)</span>' : '')
                                         + '</button>'
                                     ).join('')
                                 + '</div>').join('')}
@@ -871,7 +901,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                             </select>
                                         </div>
                                     </div>
-                                    <p class="text-xs text-gray-500 mb-3">+${QUICK_TOOL_PRICE} credits • You have ${app.user.credits} credits</p>
+                                    <p class="text-xs text-gray-500 mb-3">${quickToolCost(currentTool.key) === 0 ? '<span class="text-green-700 font-bold">Free</span>' : '+' + QUICK_TOOL_PRICE + ' credits'} • You have ${app.user.credits} credits</p>
                                     <textarea id="quick-tool-input" oninput="app.quickTools.inputContent = this.value" placeholder="${currentTool.placeholder}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="3">${app.quickTools.inputContent}</textarea>
                                     <button onclick="submitQuickTool()" ${app.quickTools.loading ? 'disabled' : ''} class="mt-3 bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
                                         ${app.quickTools.loading ? 'Generating…' : 'Generate'}
@@ -1246,6 +1276,51 @@ const content = (app.sermonState.inputContent || '').trim();
         const UPDATE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/update-sermon';
         const REPURPOSE_SERMON_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/repurpose-sermon';
 
+        // Sends the finished sermon back through the repurpose pipeline as a
+        // discounted bundle. Reuses the existing repurpose webhook rather than
+        // adding another endpoint.
+        async function orderFollowUpBundle() {
+            const bundle = ['Small Group Guide', 'Discussion Questions', 'Social Posts', 'Blog Article'];
+            const fullPrice = bundle.reduce((sum, a) => sum + (ALL_ADDON_PRICES[a] || 0), 0);
+            const offerPrice = Math.ceil(fullPrice * 0.6);
+
+            if (app.user.credits < offerPrice) {
+                setFlash('error', 'You need ' + offerPrice + ' credits for this bundle.');
+                render();
+                return;
+            }
+
+            const s = app.viewingProject && app.viewingProject.sermon_json;
+            if (!s) { setFlash('error', 'Could not read this sermon. Please reload and try again.'); render(); return; }
+
+            setFlash('info', 'Building your follow-up materials \u2014 we will email them shortly.');
+            render();
+
+            try {
+                const res = await fetch(REPURPOSE_SERMON_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
+                    body: JSON.stringify({
+                        raw_text: sermonToPlainText(s),
+                        user_id: ensureUserId(),
+                        user_email: app.user.email,
+                        addons: bundle,
+                        credits_cost: offerPrice,
+                        doctrinal_position: app.sermonState.doctrinalPosition,
+                        bible_translation: app.sermonState.translation,
+                        audience: app.sermonState.audience
+                    })
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                app.user.credits -= offerPrice;
+                localStorage.setItem('user', JSON.stringify(app.user));
+                setFlash('success', 'On its way \u2014 all four will be emailed to ' + app.user.email + '.');
+            } catch (err) {
+                setFlash('error', "Couldn't order that bundle (" + err.message + "). You were not charged.");
+            }
+            render();
+        }
+
         function toggleEditMode() {
             app.editMode = !app.editMode;
             render();
@@ -1531,6 +1606,25 @@ const content = (app.sermonState.inputContent || '').trim();
                                 Estimated speaking time: ${s.estimated_speaking_time || '\u2014'}
                             </div>
                         </div>
+
+                        ${(function () {
+                            // Offered here rather than during generation: while they were
+                            // waiting they were anxious about whether it worked. Now the
+                            // sermon is in front of them and they can see what it's worth.
+                            const bundle = ['Small Group Guide', 'Discussion Questions', 'Social Posts', 'Blog Article'];
+                            const fullPrice = bundle.reduce((sum, a) => sum + (ALL_ADDON_PRICES[a] || 0), 0);
+                            const offerPrice = Math.ceil(fullPrice * 0.6);
+                            if (app.user.credits < offerPrice) return '';
+                            return '<div class="mt-6 bg-purple-50 border border-purple-200 rounded-2xl p-6">'
+                                + '<div class="flex items-start justify-between flex-wrap gap-4">'
+                                + '<div class="flex-1 min-w-[240px]">'
+                                + '<p class="font-bold text-gray-900 mb-1">Get more from this sermon</p>'
+                                + '<p class="text-sm text-gray-700 mb-2">Turn it into a small group guide, discussion questions, social posts and a blog article \u2014 all four for ' + offerPrice + ' credits instead of ' + fullPrice + '.</p>'
+                                + '<p class="text-xs text-gray-500">You have ' + app.user.credits + ' credits.</p>'
+                                + '</div>'
+                                + '<button onclick="orderFollowUpBundle()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 whitespace-nowrap">Add all four \u2014 ' + offerPrice + ' credits</button>'
+                                + '</div></div>';
+                        })()}
                     </div>
                 </div>
             `;
@@ -1545,11 +1639,13 @@ const content = (app.sermonState.inputContent || '').trim();
                             <p class="text-xl text-gray-600">Buy credits. Use them. They never expire.</p>
                         </div>
 
-                        <div class="grid md:grid-cols-3 gap-6 mb-12">
+                        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
                             ${[
-                                { credits: 100, price: 9, bonus: 0, best: false },
-                                { credits: 500, price: 39, bonus: 50, best: true },
-                                { credits: 2000, price: 129, bonus: 300, best: false }
+                                { credits: 100, price: 12, bonus: 0, best: false },
+                                { credits: 300, price: 32, bonus: 25, best: false },
+                                { credits: 600, price: 59, bonus: 75, best: true },
+                                { credits: 1200, price: 99, bonus: 200, best: false },
+                                { credits: 2500, price: 189, bonus: 500, best: false }
                             ].map((pkg) => {
                                 const totalCredits = pkg.credits + pkg.bonus;
                                 const essentialsCount = Math.floor(totalCredits / packagePrices.essentials);
@@ -1678,9 +1774,11 @@ const content = (app.sermonState.inputContent || '').trim();
                                         <h2 class="font-semibold text-gray-900">Duration</h2>
                                     </div>
                                     <div class="flex gap-2 flex-wrap">
-                                        ${[15, 30, 45, 60, 90].map(min => `
-                                            <button onclick="app.sermonState.duration=${min}; render()" class="px-4 py-2 rounded-lg border ${app.sermonState.duration === min ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-900'}">${min} min</button>
-                                        `).join('')}
+                                        ${[15, 30, 45, 60, 90].map(min => {
+                                            const m = durationMultiplier(min);
+                                            const badge = m > 1 ? ' <span class="text-xs opacity-70">' + m + 'x</span>' : '';
+                                            return '<button onclick="app.sermonState.duration=' + min + '; render()" class="px-4 py-2 rounded-lg border ' + (app.sermonState.duration === min ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-900') + '">' + min + ' min' + badge + '</button>';
+                                        }).join('')}
                                     </div>
                                     ${!recommendedDurations.includes(app.sermonState.duration) ? `
                                         <p class="text-xs text-amber-600 mt-2">Heads up: ${app.sermonState.duration} min is longer than typical for the ${app.sermonState.package} package. Consider ${recommendedDurations.join(' or ')} min, or upgrade your package for more depth.</p>
@@ -1778,7 +1876,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                     </div>
                                     <div class="flex justify-between text-sm">
                                         <span class="text-gray-600">Duration</span>
-                                        <span class="font-semibold text-gray-900">${app.sermonState.duration} min</span>
+                                        <span class="font-semibold text-gray-900">${app.sermonState.duration} min${durationMultiplier(app.sermonState.duration) > 1 ? ' (' + durationMultiplier(app.sermonState.duration) + 'x)' : ''}</span>
                                     </div>
                                     ${app.sermonState.addons.length > 0 ? `
                                         <div class="flex justify-between text-sm">
@@ -1813,7 +1911,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         <div class="bg-white rounded-2xl border border-gray-200 p-8">
                             <h2 class="text-2xl font-bold text-gray-900 mb-4">Our Mission</h2>
                             <p class="text-gray-600 mb-4">To empower pastors and Bible teachers with AI-powered tools that respect their theological framework and free up time for what matters most: shepherding people.</p>
-                            <p class="text-gray-600">Built with a Mid-Acts Dispensational, Grace theology foundation. Every verse matters. Every context counts.</p>
+                            <p class="text-gray-600">Built to respect your tradition rather than replace it. Choose your doctrinal position and every sermon is framed accordingly. Every verse matters. Every context counts.</p>
                         </div>
                     </div>
                 </div>
@@ -1912,6 +2010,7 @@ const content = (app.sermonState.inputContent || '').trim();
 
         function CheckoutPage() {
             const total = getSermonTotal();
+            const notEnough = app.user.credits < total;
             return `
                 <div class="pt-20 min-h-screen bg-gray-50 px-4 py-8">
                     <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8">
@@ -1926,8 +2025,10 @@ const content = (app.sermonState.inputContent || '').trim();
                             <p class="text-gray-900 font-semibold mb-2">${app.user.email}</p>
                             <button type="button" onclick="goTo('account')" class="text-xs text-purple-600 hover:underline cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Wrong address? Update it on your Account page</button>
                         </div>
-                        <button onclick="completeCheckout()" class="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 mb-4">Complete Purchase with Stripe</button>
-                        <p class="text-xs text-gray-600 text-center">(Stripe integration will be connected to real payment processing)</p>
+                        <button onclick="completeCheckout()" ${notEnough ? 'disabled' : ''} class="w-full py-3 rounded-lg font-semibold mb-4 ${notEnough ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700'}">${notEnough ? 'Not enough credits' : 'Use ' + total + ' Credits \u2014 Build My Sermon'}</button>
+                        ${notEnough
+                            ? '<p class="text-xs text-center text-gray-600">You have ' + app.user.credits + ' credits and this needs ' + total + '. <button type="button" onclick="goTo(\'pricing\')" class="text-purple-600 underline cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Buy more credits</button>.</p>'
+                            : '<p class="text-xs text-gray-600 text-center">No card needed \u2014 this uses credits you already have. You\'ll have ' + (app.user.credits - total) + ' left.</p>'}
                     </div>
                 </div>
             `;
@@ -2077,7 +2178,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         <div class="bg-white rounded-2xl border border-gray-200 p-8 space-y-6 text-gray-700 leading-relaxed">
                             <section>
                                 <h2 class="text-xl font-bold text-gray-900 mb-2">Theological Content Disclaimer</h2>
-                                <p>GraceTools generates sermon content using artificial intelligence, informed by the Mid-Acts Dispensational, Grace theology framework. Generated content reflects that framework but is not a substitute for personal study, prayer, or the guidance of the Holy Spirit. Every user is responsible for reviewing generated content against Scripture before teaching or preaching it.</p>
+                                <p>GraceTools generates sermon content using artificial intelligence, informed by the doctrinal position you select. Generated content reflects that tradition as the model understands it, and is not a substitute for personal study, prayer, or the guidance of the Holy Spirit. It may not represent your tradition's teaching accurately in every case. Every user is responsible for reviewing generated content against Scripture, and against their own church's confession or teaching, before teaching or preaching it.</p>
                             </section>
                             <section>
                                 <h2 class="text-xl font-bold text-gray-900 mb-2">AI-Generated Content</h2>
@@ -2232,7 +2333,7 @@ const content = (app.sermonState.inputContent || '').trim();
 
         function FAQPage() {
             const faqs = [
-                { q: 'What theological framework does GraceTools use?', a: 'By default, GraceTools generates content within a Mid-Acts Dispensational, Grace theology framework. You can also select from other doctrinal positions (Baptist, Reformed, Wesleyan, Pentecostal, or Non-Denominational) in the builder before generating.' },
+                { q: 'What theological framework does GraceTools use?', a: 'You choose. Select your doctrinal position \u2014 Roman Catholic, Eastern Orthodox, Anglican, Lutheran, Reformed, Baptist, Methodist, Pentecostal / Charismatic, Non-Denominational Evangelical, Acts 2 Dispensational, or Mid-Acts Dispensational \u2014 and the AI frames the passage, its audience, and its application accordingly. You can set this in the sermon builder and again in Quick Tools. Always review the result against your own tradition before preaching it.' },
                 { q: 'Do credits expire?', a: 'No. Credits you purchase never expire — use them whenever you need them.' },
                 { q: 'What if a sermon fails to generate?', a: "If generation fails for any reason, your credits are automatically refunded in full — you're never charged for a failed attempt." },
                 { q: 'Can I upload my own notes, a PDF, or an audio recording?', a: 'Yes. The builder supports typed text, a Bible passage or topic, a YouTube link, an uploaded PDF (we extract the text), or an uploaded audio file (we transcribe it for you).' },
@@ -2304,6 +2405,12 @@ const content = (app.sermonState.inputContent || '').trim();
             else if (app.currentPage === 'faq') content = FAQPage();
             else content = NotFoundPage();
 
+            // Replacing innerHTML resets scroll and focus. Preserve both so typing
+            // in a field or re-rendering on a timer doesn't yank the page around.
+            const _scrollY = window.scrollY;
+            const _activeId = document.activeElement ? document.activeElement.id : null;
+            const _selStart = document.activeElement && document.activeElement.selectionStart;
+
             document.getElementById('app').innerHTML = Header() + FlashBanner() + content + `
                 <footer class="bg-white border-t border-gray-200 px-6 py-8 mt-12">
                     <div class="max-w-7xl mx-auto text-center text-sm text-gray-600">
@@ -2318,6 +2425,17 @@ const content = (app.sermonState.inputContent || '').trim();
                     </div>
                 </footer>
             `;
+
+            window.scrollTo(0, _scrollY);
+            if (_activeId) {
+                const el = document.getElementById(_activeId);
+                if (el) {
+                    el.focus();
+                    if (typeof _selStart === 'number' && el.setSelectionRange) {
+                        try { el.setSelectionRange(_selStart, _selStart); } catch (e) {}
+                    }
+                }
+            }
         }
 
         // Init
