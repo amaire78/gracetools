@@ -591,8 +591,35 @@ const content = (app.sermonState.inputContent || '').trim();
         ];
 
         function renderQuickToolResult(result) {
+            function renderQuickToolResult(result) {
             if (!result) return '';
             if (result.raw_text) return `<p class="text-gray-700 whitespace-pre-line">${result.raw_text}</p>`;
+
+            // Multi-option tools return { options: [...] }. Render them as
+            // labelled cards so it reads as a real choice, not a data dump.
+            if (Array.isArray(result.options)) {
+                return result.options.map((opt, i) => {
+                    const label = opt.approach || ('Option ' + (i + 1));
+                    const body = Object.entries(opt)
+                        .filter(([k]) => k !== 'approach')
+                        .map(([k, v]) => {
+                            const isLong = typeof v === 'string' && v.length > 80;
+                            const fieldLabel = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                            return isLong
+                                ? `<p class="text-gray-700 leading-relaxed whitespace-pre-line mb-2">${v}</p>`
+                                : `<p class="text-sm mb-1"><span class="font-semibold text-gray-900">${fieldLabel}:</span> <span class="text-gray-700">${v}</span></p>`;
+                        }).join('');
+                    return `
+                        <div class="mb-4 rounded-xl border border-gray-200 overflow-hidden">
+                            <div class="bg-purple-50 px-4 py-2 flex items-center justify-between">
+                                <span class="text-sm font-bold text-purple-700">${label}</span>
+                                <span class="text-xs text-gray-500">Option ${i + 1} of ${result.options.length}</span>
+                            </div>
+                            <div class="px-4 py-3">${body}</div>
+                        </div>
+                    `;
+                }).join('');
+            }
             let html = '';
             for (const [key, value] of Object.entries(result)) {
                 const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
