@@ -16,6 +16,7 @@
     <meta name="twitter:title" content="GraceTools - AI Sermon Prep for Pastors">
     <meta name="twitter:description" content="AI-powered sermon preparation for pastors, built on real theology-aware AI.">
 
+    <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="%231A2540"/><g fill="none" stroke="%23FFFFFF" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"><path d="M60 54 C48 44, 30 41, 18 43 L18 93 C30 91, 48 94, 60 103"/><path d="M60 54 C72 44, 90 41, 102 43 L102 93 C90 91, 72 94, 60 103"/><line x1="60" y1="54" x2="60" y2="103"/></g><g stroke="%23D8B76A" stroke-width="7.5" stroke-linecap="round"><line x1="60" y1="16" x2="60" y2="54"/><line x1="44" y1="30" x2="76" y2="30"/></g></svg>'>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -116,31 +117,13 @@
             master: ['Youth Version', 'Small Group Guide', 'Blog Article', 'Social Posts', 'Discussion Questions', 'Printable']
         };
 
-        // Set this once your AnythingLLM instance is deployed and white-labeled
-        // (e.g. on Railway). Leave as null until then - the nav link will show
-        // a friendly "coming soon" message instead of a broken link.
-        const ANYTHINGLLM_URL = null; // e.g. 'https://sermon-library.gracetools.com'
-
-        function openSermonLibrary() {
-            if (!ANYTHINGLLM_URL) {
-                setFlash('info', 'Sermon Library is being set up \u2014 check back soon!');
-                render();
-                return;
-            }
-            window.open(ANYTHINGLLM_URL, '_blank');
-        }
-
         // Navigation
         const TRACK_EVENT_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/track-event';
 
         function trackEvent(action, extra) {
             // Fire-and-forget - never let analytics failures affect the user experience
             try {
-                fetch(TRACK_EVENT_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ action, user_id: localStorage.getItem('userId') || null, ...extra })
-                }).catch(() => {});
+                gtFetch(TRACK_EVENT_WEBHOOK_URL, { action, user_id: localStorage.getItem('userId') || null, ...extra }).catch(() => {});
             } catch (e) {}
         }
 
@@ -172,6 +155,7 @@
             'quick-tools': 'Quick Tools - GraceTools',
             'how-it-works': 'How It Works - GraceTools',
             support: 'Support - GraceTools',
+            ideas: 'Share an Idea - GraceTools',
             faq: 'FAQ - GraceTools',
             about: 'About - GraceTools',
             terms: 'Terms of Service - GraceTools',
@@ -208,6 +192,61 @@
         // ships in client-side JS, a determined attacker could still extract
         // it from the page source - this stops casual scraping/enumeration
         // but is not a substitute for real per-user session authentication.
+        // --- Supabase Auth -------------------------------------------------
+        // The anon key is designed to be public; it grants nothing on its own.
+        // Real identity comes from the session token issued after a password
+        // login, which the server verifies. The browser never gets to assert
+        // who it is.
+        const SUPABASE_URL = 'https://fordopghwdjwmoeziehb.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZvcmRvcGdod2Rqd21vZXppZWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NjAyNDIsImV4cCI6MjEwMDMzNjI0Mn0.UmAl_tR-oJ9nMkfowp4NX-XF3f5ut5UqFZ7xFnKPcWk';
+
+        function getSession() {
+            try { return JSON.parse(localStorage.getItem('gt_session') || 'null'); }
+            catch (e) { return null; }
+        }
+        function setSession(s) {
+            if (s) localStorage.setItem('gt_session', JSON.stringify(s));
+            else localStorage.removeItem('gt_session');
+        }
+
+        // Every webhook call goes through here so the session token is attached
+        // in one place and can never be forgotten on a new endpoint.
+        async function gtFetch(url, body) {
+            const session = getSession();
+            const headers = { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY };
+            if (session && session.access_token) headers['Authorization'] = 'Bearer ' + session.access_token;
+            return fetch(url, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+        }
+
+        async function supabaseAuth(path, payload) {
+            const res = await fetch(SUPABASE_URL + '/auth/v1' + path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error_description || data.msg || data.message || ('Authentication failed (' + res.status + ')'));
+            }
+            return data;
+        }
+
+        // Access tokens expire after an hour. Refresh silently so a pastor
+        // mid-sermon isn't thrown back to the login screen.
+        async function refreshSessionIfNeeded() {
+            const s = getSession();
+            if (!s || !s.refresh_token) return null;
+            if (s.expires_at && Date.now() < (s.expires_at - 120) * 1000) return s;
+            try {
+                const data = await supabaseAuth('?grant_type=refresh_token', { refresh_token: s.refresh_token });
+                setSession(data);
+                return data;
+            } catch (e) {
+                setSession(null);
+                return null;
+            }
+        }
+
         const GRACETOOLS_API_KEY = 'WtESSNN3F8YgGRLcwn0I3-UpOUFSgu_h97w2gJ-hLdU';
 
         function applyAccountFromServer(serverUser, fallbackName, fallbackChurch) {
@@ -227,6 +266,7 @@
             const name = document.getElementById('signup-name').value;
             const email = document.getElementById('signup-email').value;
             const church = document.getElementById('signup-church').value;
+            const password = document.getElementById('signup-password').value;
 
             // Honeypot: real users never see or fill this field; bots often do.
             const honeypot = document.getElementById('signup-website');
@@ -237,53 +277,92 @@
                 return;
             }
 
-            // Note: this creates the real account record (name, email, church,
-            // credits) in Supabase. It does not yet verify passwords against a
-            // real auth provider - that still needs Supabase Auth wired in.
+            if (!password || password.length < 8) {
+                setFlash('error', 'Please choose a password of at least 8 characters.');
+                render();
+                return;
+            }
+
             const referredBy = new URLSearchParams(window.location.search).get('ref') || null;
+
             try {
-                const res = await fetch(CREATE_USER_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ user_id: ensureUserId(), email, name, church, starting_credits: 0, referred_by: referredBy })
+                // 1. Create the real auth user. This is what verifies the password
+                //    from now on - the profile row no longer grants access by itself.
+                const auth = await supabaseAuth('/signup', {
+                    email: email,
+                    password: password,
+                    data: { display_name: name, church_name: church }
+                });
+
+                // Projects with email confirmation switched on return no session.
+                if (!auth.access_token) {
+                    setFlash('success', "Account created. Check " + email + " for a confirmation link, then sign in.");
+                    goTo('login');
+                    return;
+                }
+                setSession(auth);
+
+                // 2. Create the profile row, keyed to the auth user id so the two
+                //    can never drift apart.
+                const res = await gtFetch(CREATE_USER_WEBHOOK_URL, {
+                    user_id: auth.user.id, email, name, church,
+                    starting_credits: 0, referred_by: referredBy
                 });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 const data = await res.json();
                 applyAccountFromServer(data.user, name, church);
+
                 if (referredBy) {
                     setFlash('success', "Welcome! You and your friend both got 10 bonus credits.");
-                } 
+                }
                 goTo('dashboard');
             } catch (err) {
-                setFlash('error', "Couldn't create your account (" + err.message + "). Please try again.");
+                const msg = /already registered/i.test(err.message)
+                    ? 'An account already exists for that email. Try signing in instead.'
+                    : err.message;
+                setFlash('error', "Couldn't create your account: " + msg);
                 render();
             }
         }
 
         async function handleLoginSubmit() {
             const email = document.getElementById('login-email').value;
-            // Same real webhook, looked up by email. This restores your real
-            // name, church, and credit balance from Supabase. It does not yet
-            // verify the password field against a real auth provider.
+            const password = document.getElementById('login-password').value;
+
             try {
-                const res = await fetch(CREATE_USER_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ user_id: ensureUserId(), email })
-                });
+                // Password is verified by Supabase. Previously any password was
+                // accepted for any email, so knowing an address was enough to
+                // take over an account and spend its credits.
+                const auth = await supabaseAuth('/token?grant_type=password', { email, password });
+                setSession(auth);
+
+                const res = await gtFetch(CREATE_USER_WEBHOOK_URL, { user_id: auth.user.id, email });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 const data = await res.json();
                 applyAccountFromServer(data.user, app.user.name, app.user.church);
                 goTo('dashboard');
             } catch (err) {
-                setFlash('error', "Couldn't sign you in (" + err.message + "). Please try again.");
+                const msg = /invalid login/i.test(err.message)
+                    ? 'That email and password combination is not recognised.'
+                    : err.message;
+                setFlash('error', "Couldn't sign you in: " + msg);
                 render();
             }
         }
 
         function handleLogout() {
+            const s = getSession();
+            if (s && s.access_token) {
+                // Best effort - revoke server-side so the token can't be reused.
+                fetch(SUPABASE_URL + '/auth/v1/logout', {
+                    method: 'POST',
+                    headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + s.access_token }
+                }).catch(() => {});
+            }
+            setSession(null);
             app.isLoggedIn = false;
             localStorage.removeItem('isLoggedIn');
+            localStorage.removeItem('user');
             goTo('home');
         }
 
@@ -343,11 +422,7 @@
             render();
             try {
                 const base64 = await fileToBase64(file);
-                const res = await fetch(EXTRACT_PDF_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ pdf_base64: base64, filename: file.name, user_email: app.user.email })
-                });
+                const res = await gtFetch(EXTRACT_PDF_WEBHOOK_URL, { pdf_base64: base64, filename: file.name, user_email: app.user.email });
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
                     throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 150) : ''));
@@ -378,11 +453,7 @@
             render();
             try {
                 const base64 = await fileToBase64(file);
-                const res = await fetch(TRANSCRIBE_AUDIO_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ audio_base64: base64, filename: file.name, user_email: app.user.email, project_id: null })
-                });
+                const res = await gtFetch(TRANSCRIBE_AUDIO_WEBHOOK_URL, { audio_base64: base64, filename: file.name, user_email: app.user.email, project_id: null });
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
                     throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 150) : ''));
@@ -411,6 +482,7 @@
         }
 
         async function completeCheckout() {
+            await refreshSessionIfNeeded();
             const total = getSermonTotal();
             if (app.user.credits < total) {
                 setFlash('error', "You don't have enough credits for this package. Buy more credits to continue.");
@@ -460,11 +532,7 @@ const content = (app.sermonState.inputContent || '').trim();
             startGeneratingTicker();
 
             try {
-                const res = await fetch(SERMON_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify(payload)
-                });
+                const res = await gtFetch(SERMON_WEBHOOK_URL, payload);
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
                     throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 200) : ''));
@@ -507,10 +575,7 @@ const content = (app.sermonState.inputContent || '').trim();
             }
 
             try {
-                const res = await fetch(LIST_PROJECTS_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ user_id: ensureUserId() })
+                const res = await gtFetch(LIST_PROJECTS_WEBHOOK_URL, { user_id: ensureUserId()
                 });
                 if (res.ok) {
                     const data = await res.json();
@@ -562,14 +627,48 @@ const content = (app.sermonState.inputContent || '').trim();
             goTo('account');
         }
 
-        function buyCredits(credits) {
-            setFlash('info', 'Live payments aren\'t connected yet, so this is a placeholder \u2014 buying ' + credits + ' credits will work once Stripe billing goes live.');
-            render();
+        // Stripe Payment Links, one per package, keyed by the BASE credits of the
+        // package (not credits + bonus). Create these in Stripe > Product catalog,
+        // then paste the buy.stripe.com URL here. Any package left empty falls back
+        // to an honest message instead of a dead button.
+        const STRIPE_LINKS = {
+            100:  'https://buy.stripe.com/fZu28kbXNaDfdAD2O1gw001',
+            300:  'https://buy.stripe.com/8x200cbXN6mZeEH88lgw002',
+            600:  'https://buy.stripe.com/5kQ5kw7HxdPrdADdsFgw003',
+            1200: 'https://buy.stripe.com/eVq28k5zp12F8gj1JXgw004',
+            2500: 'https://buy.stripe.com/dRm28kbXNh1DeEHcoBgw005'
+        };
+
+        function buyCredits(baseCredits, totalCredits) {
+            const link = STRIPE_LINKS[baseCredits];
+            if (!link) {
+                setFlash('info', 'This package isn\'t open for purchase yet. Email support@gracetools.com and we\'ll sort you out directly.');
+                render();
+                return;
+            }
+            trackEvent('checkout_started', { package_credits: baseCredits, total_credits: totalCredits });
+            // Pass the account email so Stripe prefills it and the webhook can match
+            // the payment back to the right account.
+            const sep = link.indexOf('?') === -1 ? '?' : '&';
+            window.location.href = link + sep + 'prefilled_email=' + encodeURIComponent(app.user.email)
+                + '&client_reference_id=' + encodeURIComponent(ensureUserId());
         }
 
-        function sendPasswordReset() {
-            const email = document.getElementById('reset-email') ? document.getElementById('reset-email').value : '';
-            setFlash('success', email ? ("If an account exists for " + email + ", reset instructions are on the way.") : 'Enter your email above and we\'ll send reset instructions.');
+        async function sendPasswordReset() {
+            const el = document.getElementById('reset-email');
+            const email = el ? el.value.trim() : '';
+            if (!email) {
+                setFlash('error', 'Enter your email above and we\'ll send reset instructions.');
+                render();
+                return;
+            }
+            try {
+                await supabaseAuth('/recover', { email: email });
+            } catch (e) {
+                // Deliberately ignored: telling the visitor whether an address is
+                // registered would let anyone enumerate your customers.
+            }
+            setFlash('success', 'If an account exists for ' + email + ', reset instructions are on the way.');
             render();
         }
 
@@ -677,6 +776,7 @@ const content = (app.sermonState.inputContent || '').trim();
         }
 
                 async function submitQuickTool() {
+            await refreshSessionIfNeeded();
             if (!app.quickTools.inputContent || !app.quickTools.inputContent.trim()) {
                 setFlash('error', 'Please enter something for the tool to work from.');
                 render();
@@ -691,18 +791,14 @@ const content = (app.sermonState.inputContent || '').trim();
             app.quickTools.loading = true;
             render();
             try {
-                const res = await fetch(QUICK_TOOLS_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({
+                const res = await gtFetch(QUICK_TOOLS_WEBHOOK_URL, {
                         tool_type: app.quickTools.selectedTool,
                         input_content: app.quickTools.inputContent,
                         user_id: ensureUserId(),
                         user_email: app.user.email,
                         bible_translation: app.quickTools.translation,
                         doctrinal_position: app.quickTools.doctrinalPosition
-                    })
-                });
+                    });
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
                     throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 150) : ''));
@@ -733,11 +829,7 @@ const content = (app.sermonState.inputContent || '').trim();
             render();
             try {
                 const base64 = await fileToBase64(file);
-                const res = await fetch(TRANSCRIBE_AUDIO_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ audio_base64: base64, filename: file.name, user_email: app.user.email, project_id: null })
-                });
+                const res = await gtFetch(TRANSCRIBE_AUDIO_WEBHOOK_URL, { audio_base64: base64, filename: file.name, user_email: app.user.email, project_id: null });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 const data = await res.json();
                 if (!data.transcription || !data.transcription.trim()) throw new Error('No speech could be transcribed from this file.');
@@ -775,10 +867,7 @@ const content = (app.sermonState.inputContent || '').trim();
             app.repurpose.loading = true;
             render();
             try {
-                const res = await fetch(REPURPOSE_SERMON_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({
+                const res = await gtFetch(REPURPOSE_SERMON_WEBHOOK_URL, {
                         raw_text: app.repurpose.rawText,
                         user_id: ensureUserId(),
                         user_email: app.user.email,
@@ -787,8 +876,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         doctrinal_position: app.sermonState.doctrinalPosition,
                         bible_translation: app.sermonState.translation,
                         audience: app.sermonState.audience
-                    })
-                });
+                    });
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
                     throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 150) : ''));
@@ -919,10 +1007,7 @@ const content = (app.sermonState.inputContent || '').trim();
 
         async function loadProjects() {
             try {
-                const res = await fetch(LIST_PROJECTS_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ user_id: ensureUserId() })
+                const res = await gtFetch(LIST_PROJECTS_WEBHOOK_URL, { user_id: ensureUserId()
                 });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 const data = await res.json();
@@ -988,7 +1073,20 @@ const content = (app.sermonState.inputContent || '').trim();
             return `
                 <header class="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-40">
                     <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                        <div onclick="goTo('home')" class="text-xl font-bold text-gray-900 cursor-pointer">✚ GraceTools</div>
+                        <div onclick="goTo('home')" class="flex items-center gap-2.5 cursor-pointer select-none">
+                            <svg viewBox="0 0 120 120" class="w-8 h-8 shrink-0" aria-hidden="true">
+                                <g fill="none" stroke="#2C3E63" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M60 54 C48 44, 30 41, 18 43 L18 93 C30 91, 48 94, 60 103"/>
+                                    <path d="M60 54 C72 44, 90 41, 102 43 L102 93 C90 91, 72 94, 60 103"/>
+                                    <line x1="60" y1="54" x2="60" y2="103"/>
+                                </g>
+                                <g stroke="#B4924C" stroke-width="7.5" stroke-linecap="round">
+                                    <line x1="60" y1="16" x2="60" y2="54"/>
+                                    <line x1="44" y1="30" x2="76" y2="30"/>
+                                </g>
+                            </svg>
+                            <span class="font-serif text-xl font-bold text-gray-900 tracking-tight">Grace<span class="text-purple-500">Tools</span></span>
+                        </div>
                         
                         <nav class="hidden md:flex items-center gap-8">
                             ${app.isLoggedIn ? `
@@ -999,6 +1097,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                 <button type="button" onclick="goTo('pricing')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Buy Credits</button>
                                 <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
                                 <button type="button" onclick="goTo('support')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
+                                <button type="button" onclick="goTo('ideas')" class="text-sm text-purple-700 font-semibold hover:text-purple-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Ideas</button>
                             ` : `
                                 <button type="button" onclick="goTo('how-it-works')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">How It Works</button>
                                 <button type="button" onclick="goTo('pricing')" class="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Pricing</button>
@@ -1298,10 +1397,7 @@ const content = (app.sermonState.inputContent || '').trim();
             render();
 
             try {
-                const res = await fetch(REPURPOSE_SERMON_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({
+                const res = await gtFetch(REPURPOSE_SERMON_WEBHOOK_URL, {
                         raw_text: sermonToPlainText(s),
                         user_id: ensureUserId(),
                         user_email: app.user.email,
@@ -1310,8 +1406,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         doctrinal_position: app.sermonState.doctrinalPosition,
                         bible_translation: app.sermonState.translation,
                         audience: app.sermonState.audience
-                    })
-                });
+                    });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 app.user.credits -= offerPrice;
                 localStorage.setItem('user', JSON.stringify(app.user));
@@ -1354,11 +1449,7 @@ const content = (app.sermonState.inputContent || '').trim();
         async function saveSermonEdits() {
             const updated = readEditedSermonFromForm();
             try {
-                const res = await fetch(UPDATE_SERMON_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ project_id: app.viewingProject.id, sermon_json: updated })
-                });
+                const res = await gtFetch(UPDATE_SERMON_WEBHOOK_URL, { project_id: app.viewingProject.id, sermon_json: updated });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 app.viewingProject.sermon_json = updated;
                 if (app.projects) {
@@ -1658,7 +1749,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                     <p class="text-4xl font-bold text-purple-600 mb-2">$${pkg.price}</p>
                                     ${pkg.bonus > 0 ? `<p class="text-sm text-green-600 font-semibold mb-2">+${pkg.bonus} bonus credits!</p>` : '<div class="mb-2"></div>'}
                                     <p class="text-xs text-gray-500 mb-6">\u2248 ${essentialsCount} Essentials sermons or ${preacherCount} Preacher sermons</p>
-                                    <button onclick="buyCredits(${totalCredits})" class="w-full py-3 rounded-lg font-semibold mb-6 ${pkg.best ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}">Buy Now</button>
+                                    <button onclick="buyCredits(${pkg.credits}, ${totalCredits})" class="w-full py-3 rounded-lg font-semibold mb-6 ${pkg.best ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}">Buy Now</button>
                                     <div class="space-y-2 text-sm text-gray-600">
                                         <p>• Credits never expire</p>
                                         <p>• Use across all packages</p>
@@ -1930,11 +2021,7 @@ const content = (app.sermonState.inputContent || '').trim();
                 return;
             }
             try {
-                const res = await fetch(REDEEM_PROMO_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ code, user_id: ensureUserId(), user_email: app.user.email })
-                });
+                const res = await gtFetch(REDEEM_PROMO_WEBHOOK_URL, { code, user_id: ensureUserId(), user_email: app.user.email });
                 if (!res.ok) {
                     const errText = await res.text().catch(() => '');
                     let message = 'That code could not be redeemed.';
@@ -2224,11 +2311,7 @@ const content = (app.sermonState.inputContent || '').trim();
             }
 
             try {
-                const res = await fetch(CONTACT_FORM_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-GraceTools-Key': GRACETOOLS_API_KEY },
-                    body: JSON.stringify({ name, email, message })
-                });
+                const res = await gtFetch(CONTACT_FORM_WEBHOOK_URL, { name, email, message });
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 document.getElementById('contact-name').value = '';
                 document.getElementById('contact-email').value = '';
@@ -2238,6 +2321,100 @@ const content = (app.sermonState.inputContent || '').trim();
                 setFlash('error', "Couldn't send your message (" + err.message + "). Please try again or email support@gracetools.com directly.");
             }
             render();
+        }
+
+        // Reuses the existing contact-form webhook rather than adding another
+        // endpoint - it already emails support, which is all an idea needs to do.
+        app.idea = { category: 'A feature I wish it had', text: '', sending: false };
+
+        const IDEA_CATEGORIES = [
+            'A feature I wish it had',
+            'Something confusing or hard to use',
+            'Something that looks broken',
+            'The sermon output could be better',
+            'Pricing or credits',
+            'Something else'
+        ];
+
+        async function submitIdea() {
+            const text = (app.idea.text || '').trim();
+            if (text.length < 10) {
+                setFlash('error', 'Tell us a little more \u2014 even a sentence or two helps.');
+                render();
+                return;
+            }
+            const honeypot = document.getElementById('idea-website');
+            if (honeypot && honeypot.value) {
+                trackEvent('honeypot_triggered', { page: 'ideas' });
+                setFlash('error', "Couldn't send that. Please try again.");
+                render();
+                return;
+            }
+
+            app.idea.sending = true;
+            render();
+
+            try {
+                const res = await gtFetch(CONTACT_FORM_WEBHOOK_URL, {
+                        name: app.user.name + ' (idea)',
+                        email: app.user.email,
+                        message: '[IDEA \u2014 ' + app.idea.category + ']\n\n' + text
+                            + '\n\n---\nChurch: ' + (app.user.church || 'not given')
+                            + '\nCredits: ' + app.user.credits
+                            + '\nUser ID: ' + ensureUserId()
+                });
+                if (!res.ok) throw new Error('Server responded with ' + res.status);
+                trackEvent('idea_submitted', { category: app.idea.category });
+                app.idea = { category: 'A feature I wish it had', text: '', sending: false };
+                setFlash('success', "Thank you \u2014 that's genuinely useful. Andrew reads every one of these personally.");
+            } catch (err) {
+                app.idea.sending = false;
+                setFlash('error', "Couldn't send that (" + err.message + "). You can also email support@gracetools.com directly.");
+            }
+            render();
+        }
+
+        function IdeasPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
+                    <div class="max-w-2xl mx-auto">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-2">Tell us what would help</h1>
+                        <p class="text-gray-600 mb-8">GraceTools is built by one person, and it gets better mostly because pastors say what's missing. Nothing is too small.</p>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-8 mb-6">
+                            <div style="position: absolute; left: -9999px;" aria-hidden="true">
+                                <label for="idea-website">Website (leave this blank)</label>
+                                <input id="idea-website" type="text" tabindex="-1" autocomplete="off" />
+                            </div>
+
+                            <label class="block text-sm font-semibold text-gray-900 mb-2">What kind of thing is it?</label>
+                            <div class="flex flex-wrap gap-2 mb-6">
+                                ${IDEA_CATEGORIES.map(cat =>
+                                    '<button type="button" onclick="app.idea.category=' + JSON.stringify(cat).replace(/"/g, '&quot;') + '; render();" class="px-3 py-1.5 rounded-full text-sm border ' + (app.idea.category === cat ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-700 hover:border-purple-400') + '">' + cat + '</button>'
+                                ).join('')}
+                            </div>
+
+                            <label for="idea-text" class="block text-sm font-semibold text-gray-900 mb-2">Tell us about it</label>
+                            <textarea id="idea-text" oninput="app.idea.text = this.value" maxlength="3000" rows="7" placeholder="What were you trying to do, and what would have made it easier?" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none">${app.idea.text}</textarea>
+                            <p class="text-xs text-gray-400 mt-1 text-right">${app.idea.text.length}/3000</p>
+
+                            <p class="text-xs text-gray-500 mt-3 mb-4">We'll reply to <strong>${app.user.email}</strong> if a question comes up.</p>
+
+                            <button onclick="submitIdea()" ${app.idea.sending ? 'disabled' : ''} class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
+                                ${app.idea.sending ? 'Sending\u2026' : 'Send it'}
+                            </button>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-gray-200 p-6 text-sm text-gray-600">
+                            <p class="mb-2 font-semibold text-gray-900">Especially useful to hear about</p>
+                            <p class="mb-1">\u2022 A step that took longer than it should have</p>
+                            <p class="mb-1">\u2022 Anywhere the theology came out wrong for your tradition</p>
+                            <p class="mb-1">\u2022 Something you still do by hand after using GraceTools</p>
+                            <p>\u2022 A tool you'd pay for that doesn't exist yet</p>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         function SupportPage() {
@@ -2403,6 +2580,7 @@ const content = (app.sermonState.inputContent || '').trim();
             else if (app.currentPage === 'checkout') content = app.isLoggedIn ? CheckoutPage() : HomePage();
             else if (app.currentPage === 'how-it-works') content = HowItWorksPage();
             else if (app.currentPage === 'support') content = SupportPage();
+            else if (app.currentPage === 'ideas') content = app.isLoggedIn ? IdeasPage() : SupportPage();
             else if (app.currentPage === 'faq') content = FAQPage();
             else content = NotFoundPage();
 
@@ -2421,6 +2599,7 @@ const content = (app.sermonState.inputContent || '').trim();
                             <button type="button" onclick="goTo('privacy')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Privacy</button>
                             <button type="button" onclick="goTo('support')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Support</button>
                             <button type="button" onclick="goTo('faq')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">FAQ</button>
+                            <button type="button" onclick="goTo('ideas')" class="hover:text-gray-900 cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Ideas</button>
                         </div>
                         <p>© 2024 GraceTools. Built for pastors.</p>
                     </div>
@@ -2440,8 +2619,22 @@ const content = (app.sermonState.inputContent || '').trim();
         }
 
         // Init
+        // Trust the stored session, not the isLoggedIn flag - that flag was
+        // just a localStorage boolean anyone could set by hand.
+        (function () {
+            const s = getSession();
+            if (!s || !s.access_token) {
+                app.isLoggedIn = false;
+                localStorage.removeItem('isLoggedIn');
+            }
+        })();
+
         render();
+
+        // Keep the token fresh in the background so a long sermon session
+        // doesn't expire mid-generation.
+        refreshSessionIfNeeded();
+        setInterval(refreshSessionIfNeeded, 10 * 60 * 1000);
     </script>
-    <a href="https://buy.stripe.com/3cIeV68LBbHj0NR2O1gw000" class="bg-purple-600 text-white py-3 px-8 rounded-lg font-bold">Buy 10 Credits - $24</a>
 </body>
 </html>
