@@ -558,7 +558,7 @@ const content = (app.sermonState.inputContent || '').trim();
         app.editMode = false;
         app.generatingProjectId = null;
         app.generatingStartedAt = null;
-        app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false };
+       app.quickTools = { selectedTool: 'sermon_title', inputContent: '', result: null, loading: false, translation: 'KJV', doctrinalPosition: 'Mid-Acts Dispensational' };
         app.faqOpen = null;
         app.repurpose = { rawText: '', addons: [], loading: false, uploading: false, fileName: null };
         const REPURPOSE_ADDON_PRICE = 4;
@@ -662,8 +662,8 @@ const content = (app.sermonState.inputContent || '').trim();
                         input_content: app.quickTools.inputContent,
                         user_id: ensureUserId(),
                         user_email: app.user.email,
-                        bible_translation: app.sermonState.translation,
-                        doctrinal_position: app.sermonState.doctrinalPosition
+                       bible_translation: app.quickTools.translation,
+                        doctrinal_position: app.quickTools.doctrinalPosition
                     })
                 });
                 if (!res.ok) {
@@ -848,6 +848,20 @@ const content = (app.sermonState.inputContent || '').trim();
                             <div class="lg:col-span-2">
                                 <div class="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
                                     <h2 class="font-bold text-gray-900 mb-1">${currentTool.label}</h2>
+                                    <div class="grid sm:grid-cols-2 gap-3 mb-4 pb-4 border-b">
+                                        <div>
+                                            <label for="qt-translation" class="block text-xs font-semibold text-gray-600 mb-1">Bible Translation</label>
+                                            <select id="qt-translation" onchange="app.quickTools.translation=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${translations.map(t => `<option value="${t}" ${app.quickTools.translation === t ? 'selected' : ''}>${t}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="qt-doctrine" class="block text-xs font-semibold text-gray-600 mb-1">Doctrinal Position</label>
+                                            <select id="qt-doctrine" onchange="app.quickTools.doctrinalPosition=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
+                                                ${doctrinalPositions.map(d => `<option value="${d}" ${app.quickTools.doctrinalPosition === d ? 'selected' : ''}>${d}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                    </div>
                                     <p class="text-sm text-gray-500 mb-4">+${QUICK_TOOL_PRICE} credits per use \u2022 You have ${app.user.credits} credits${MULTI_OPTION_TOOLS.includes(currentTool.key) ? ' \u2022 <span class="text-purple-700 font-semibold">Returns 3 options</span>' : ''}</p>
                                     <textarea id="quick-tool-input" oninput="app.quickTools.inputContent = this.value" placeholder="${currentTool.placeholder}" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4">${app.quickTools.inputContent}</textarea>
                                     <button onclick="submitQuickTool()" ${app.quickTools.loading ? 'disabled' : ''} class="mt-4 bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
