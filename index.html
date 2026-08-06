@@ -852,7 +852,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                         <div>
                                             <label for="qt-translation" class="block text-xs font-semibold text-gray-600 mb-1">Bible Translation</label>
                                             <select id="qt-translation" onchange="app.quickTools.translation=this.value" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-purple-600">
-                                                ${translations.map(t => `<option value="${t}" ${app.quickTools.translation === t ? 'selected' : ''}>${t}</option>`).join('')}
+                                            ${translations.map(t => `<option value="${t}" ${app.quickTools.translation === t ? 'selected' : ''}>${t}</option>`).join('')}
                                             </select>
                                         </div>
                                         <div>
