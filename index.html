@@ -846,7 +846,7 @@ const content = (app.sermonState.inputContent || '').trim();
                             <div class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4">
                                 ${categories.map(cat => '<div class="mb-4"><p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 px-2">' + cat + '</p>'
                                     + QUICK_TOOLS.filter(t => t.category === cat).map(t =>
-                                        '<button onclick="app.quickTools.selectedTool='' + t.key + ''; app.quickTools.result=null; render();" class="w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ' + (app.quickTools.selectedTool === t.key ? 'bg-purple-100 text-purple-700 font-semibold' : 'text-gray-700 hover:bg-gray-50') + '">'
+                                        '<button onclick="app.quickTools.selectedTool=&#39;' + t.key + '&#39;; app.quickTools.result=null; render();" class="w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ' + (app.quickTools.selectedTool === t.key ? 'bg-purple-100 text-purple-700 font-semibold' : 'text-gray-700 hover:bg-gray-50') + '">'
                                         + t.label
                                         + (MULTI_OPTION_TOOLS.includes(t.key) ? ' <span class=\"text-xs text-purple-400\">(3)</span>' : '')
                                         + '</button>'
