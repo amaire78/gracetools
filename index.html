@@ -290,7 +290,7 @@
         // Longer sermons cost proportionally more to generate, so the base package
         // scales with length. Add-ons don't scale - a social post is the same work
         // whether the sermon was 15 minutes or 90.
-        const DURATION_MULTIPLIERS = { 15: 1, 30: 1, 45: 1.5, 60: 1.5, 90: 2 };
+        const DURATION_MULTIPLIERS = { 15: 0.75, 30: 1, 45: 1.25, 60: 1.5, 90: 2 };
         function durationMultiplier(mins) { return DURATION_MULTIPLIERS[mins] || 1; }
 
         function getSermonTotal() {
@@ -878,7 +878,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                     + QUICK_TOOLS.filter(t => t.category === cat).map(t =>
                                         '<button onclick="app.quickTools.selectedTool=&#39;' + t.key + '&#39;; app.quickTools.result=null; render();" class="w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ' + (app.quickTools.selectedTool === t.key ? 'bg-purple-100 text-purple-700 font-semibold' : 'text-gray-700 hover:bg-gray-50') + '">'
                                         + t.label
-                                        + (FREE_QUICK_TOOLS.includes(t.key) ? ' <span class=\"text-xs text-green-600 font-semibold\">Free</span>' : '') + (MULTI_OPTION_TOOLS.includes(t.key) ? ' <span class=\"text-xs text-purple-400\">(3)</span>' : '')
+                                        + (FREE_QUICK_TOOLS.includes(t.key) ? ' <span class="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold">Free</span>' : '') + (MULTI_OPTION_TOOLS.includes(t.key) ? ' <span class="text-[10px] text-purple-500">3 options</span>' : '')
                                         + '</button>'
                                     ).join('')
                                 + '</div>').join('')}
@@ -886,7 +886,7 @@ const content = (app.sermonState.inputContent || '').trim();
 
                             <div class="lg:col-span-2 flex flex-col gap-6">
                                 <div class="sticky top-20 z-10 bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-                                    <h2 class="font-bold text-gray-900 mb-1">${currentTool.label}${multiOption ? ' <span class=\"text-sm text-purple-600 font-normal ml-2\">— returns 3 options</span>' : ''}</h2>
+                                    <h2 class="font-bold text-gray-900 mb-1">${currentTool.label}${multiOption ? ' <span class="text-sm text-purple-600 font-normal ml-2">returns 3 options</span>' : ''}</h2>
                                     <div class="grid sm:grid-cols-2 gap-3 mb-4 pb-4 border-b border-gray-100">
                                         <div>
                                             <label class="block text-xs font-semibold text-gray-600 mb-1">Bible Translation</label>
@@ -1777,7 +1777,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                     <div class="flex gap-2 flex-wrap">
                                         ${[15, 30, 45, 60, 90].map(min => {
                                             const m = durationMultiplier(min);
-                                            const badge = m > 1 ? ' <span class="text-xs opacity-70">' + m + 'x</span>' : '';
+                                            const badge = m === 1 ? '' : ' <span class="text-xs opacity-70">' + (m < 1 ? '\u2212' : '+') + Math.round(Math.abs(m - 1) * 100) + '%</span>';
                                             return '<button onclick="app.sermonState.duration=' + min + '; render()" class="px-4 py-2 rounded-lg border ' + (app.sermonState.duration === min ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-900') + '">' + min + ' min' + badge + '</button>';
                                         }).join('')}
                                     </div>
