@@ -317,9 +317,12 @@
                 }
                 goTo('dashboard');
             } catch (err) {
-                const msg = /already registered/i.test(err.message)
-                    ? 'An account already exists for that email. Try signing in instead.'
-                    : err.message;
+                let msg = err.message;
+                if (/already registered/i.test(msg)) {
+                    msg = 'An account already exists for that email. Try signing in instead.';
+                } else if (/rate limit/i.test(msg)) {
+                    msg = "We're temporarily unable to send confirmation emails (too many signups in a short time). Please try again in a few minutes.";
+                }
                 setFlash('error', "Couldn't create your account: " + msg);
                 render();
             }
@@ -342,9 +345,12 @@
                 applyAccountFromServer(data.user, app.user.name, app.user.church);
                 goTo('dashboard');
             } catch (err) {
-                const msg = /invalid login/i.test(err.message)
-                    ? 'That email and password combination is not recognised.'
-                    : err.message;
+                let msg = err.message;
+                if (/invalid login/i.test(msg)) {
+                    msg = 'That email and password combination is not recognised.';
+                } else if (/email.?not.?confirmed/i.test(msg) || /confirm/i.test(msg)) {
+                    msg = "Please confirm your email before signing in. Check your inbox (and spam folder) for the confirmation link we sent when you signed up.";
+                }
                 setFlash('error', "Couldn't sign you in: " + msg);
                 render();
             }
@@ -2586,9 +2592,16 @@ const content = (app.sermonState.inputContent || '').trim();
 
             // Replacing innerHTML resets scroll and focus. Preserve both so typing
             // in a field or re-rendering on a timer doesn't yank the page around.
+            // Exception: if a flash message is about to be shown, it renders at the
+            // very top of the page. Preserving scroll in that case leaves the banner
+            // off-screen above the user's current position - the message technically
+            // exists in the DOM but is invisible, which looks exactly like "nothing
+            // happened" after a form submit. So when there's a flash to show, we
+            // scroll to top instead of preserving position.
             const _scrollY = window.scrollY;
             const _activeId = document.activeElement ? document.activeElement.id : null;
             const _selStart = document.activeElement && document.activeElement.selectionStart;
+            const _hasFlashToShow = !!app.flash;
 
             document.getElementById('app').innerHTML = Header() + FlashBanner() + content + `
                 <footer class="bg-white border-t border-gray-200 px-6 py-8 mt-12">
@@ -2606,13 +2619,17 @@ const content = (app.sermonState.inputContent || '').trim();
                 </footer>
             `;
 
-            window.scrollTo(0, _scrollY);
-            if (_activeId) {
-                const el = document.getElementById(_activeId);
-                if (el) {
-                    el.focus();
-                    if (typeof _selStart === 'number' && el.setSelectionRange) {
-                        try { el.setSelectionRange(_selStart, _selStart); } catch (e) {}
+            if (_hasFlashToShow) {
+                window.scrollTo(0, 0);
+            } else {
+                window.scrollTo(0, _scrollY);
+                if (_activeId) {
+                    const el = document.getElementById(_activeId);
+                    if (el) {
+                        el.focus();
+                        if (typeof _selStart === 'number' && el.setSelectionRange) {
+                            try { el.setSelectionRange(_selStart, _selStart); } catch (e) {}
+                        }
                     }
                 }
             }
