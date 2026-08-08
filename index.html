@@ -149,6 +149,7 @@
             home: 'GraceTools - AI Sermon Prep for Pastors',
             signup: 'Create Account - GraceTools',
             login: 'Sign In - GraceTools',
+            'reset-password': 'Set a New Password - GraceTools',
             dashboard: 'Dashboard - GraceTools',
             builder: 'Build a Sermon - GraceTools',
             pricing: 'Pricing - GraceTools',
@@ -172,6 +173,7 @@
             trackEvent('pageview', { page });
             if (page === 'dashboard' && app.isLoggedIn) {
                 loadProjects();
+                refreshAccount();
             }
         }
 
@@ -187,6 +189,19 @@
         // always returns the canonical row (real id + real credits_balance).
         // This is what completeCheckout's credit deduction depends on.
         const CREATE_USER_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/create-user';
+
+        // Transactional emails (welcome, sermon submitted, password reset).
+        // Fire-and-forget on purpose: a mail failure must never block signup or
+        // stop a sermon from generating. Failures are logged, not surfaced.
+        const SEND_NOTIFICATION_WEBHOOK_URL = 'https://indefinable-teal.pikapod.net/webhook/send-notification';
+
+        function sendNotification(type, fields) {
+            try {
+                gtFetch(SEND_NOTIFICATION_WEBHOOK_URL, { type, ...fields }).catch(function (e) {
+                    trackEvent('notification_failed', { notification_type: type, error_message: String(e && e.message || e) });
+                });
+            } catch (e) {}
+        }
 
         // Shared key required by every GraceTools webhook. Note: since this
         // ships in client-side JS, a determined attacker could still extract
@@ -262,6 +277,33 @@
             localStorage.setItem('userId', serverUser.id);
         }
 
+        // Credits are added server-side the moment Stripe confirms a payment -
+        // the browser has no idea that happened. Without this, the credit count
+        // shown on screen is whatever was cached at last login, and stays wrong
+        // until the user logs out and back in. This webhook is safe to call for
+        // an existing account - it just re-fetches their current row, it doesn't
+        // create a duplicate or reset anything.
+        let accountRefreshInFlight = false;
+        async function refreshAccount() {
+            if (!app.isLoggedIn || accountRefreshInFlight) return;
+            accountRefreshInFlight = true;
+            try {
+                const res = await gtFetch(CREATE_USER_WEBHOOK_URL, { user_id: ensureUserId(), email: app.user.email });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.user) {
+                    const before = app.user.credits;
+                    applyAccountFromServer(data.user, app.user.name, app.user.church);
+                    if (app.user.credits !== before) render();
+                }
+            } catch (e) {
+                // Silent - this is a background refresh, not a user action. A failed
+                // refresh just means we keep showing the last known credit balance.
+            } finally {
+                accountRefreshInFlight = false;
+            }
+        }
+
         // Show an error directly inside the signup/login box, right above the
         // submit button. The top-of-page flash banner can end up scrolled out of
         // view, which makes a failed login look like nothing happened at all.
@@ -335,6 +377,8 @@
                 if (!res.ok) throw new Error('Server responded with ' + res.status);
                 const data = await res.json();
                 applyAccountFromServer(data.user, name, church);
+
+                sendNotification('welcome', { user_email: email, user_name: name });
 
                 if (referredBy) {
                     setFlash('success', "Welcome! You and your friend both got 10 bonus credits.");
@@ -581,6 +625,17 @@ const content = (app.sermonState.inputContent || '').trim();
                 }
                 app.user.credits -= total;
                 localStorage.setItem('user', JSON.stringify(app.user));
+
+                // Only after the server has accepted the job - never email about
+                // a sermon that failed to submit.
+                sendNotification('project_submitted', {
+                    user_email: destinationEmail,
+                    user_name: app.user.name,
+                    base_package: app.sermonState.package,
+                    input_type: app.sermonState.inputType,
+                    credits_cost: total
+                });
+
                 pollForCompletion(projectId);
             } catch (err) {
                 setFlash('error', "Your sermon couldn't be submitted (" + err.message + "). Your credits were NOT charged \u2014 please try again or contact support@gracetools.com.");
@@ -1305,6 +1360,100 @@ const content = (app.sermonState.inputContent || '').trim();
                         <div class="border-t pt-4">
                             <p class="text-center text-gray-600 text-sm">Don't have an account? <button type="button" onclick="goTo('signup')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Sign up</button></p>
                         </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // When a pastor clicks the reset link in their email, Supabase sends them
+        // back here with a temporary token in the address bar (after the #).
+        // Pick it up, hold it in memory, and show the "set a new password" page.
+        // The token is cleared from the address bar so it isn't left in history.
+        let recoveryToken = null;
+
+        function detectPasswordRecovery() {
+            const hash = window.location.hash || '';
+            if (hash.indexOf('type=recovery') === -1) return false;
+            const params = new URLSearchParams(hash.replace(/^#/, ''));
+            const token = params.get('access_token');
+            if (!token) return false;
+            recoveryToken = token;
+            try {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            } catch (e) {}
+            app.currentPage = 'reset-password';
+            return true;
+        }
+
+        async function applyNewPassword() {
+            clearFormError('reset-password-error');
+            const pw = document.getElementById('new-password').value;
+            const confirm = document.getElementById('new-password-confirm').value;
+
+            if (!pw || pw.length < 8) {
+                showFormError('reset-password-error', 'Please choose a password of at least 8 characters.');
+                return;
+            }
+            if (pw !== confirm) {
+                showFormError('reset-password-error', "Those two passwords don't match. Please retype them.");
+                return;
+            }
+            if (!recoveryToken) {
+                showFormError('reset-password-error', 'This reset link has expired or was already used. Please request a new one from the "Forgot your password?" link.');
+                return;
+            }
+
+            try {
+                const res = await fetch(SUPABASE_URL + '/auth/v1/user', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        apikey: SUPABASE_ANON_KEY,
+                        Authorization: 'Bearer ' + recoveryToken
+                    },
+                    body: JSON.stringify({ password: pw })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.error_description || data.msg || data.message || ('Request failed (' + res.status + ')'));
+                }
+                recoveryToken = null;
+                setSession(null);
+                app.isLoggedIn = false;
+                localStorage.removeItem('isLoggedIn');
+                setFlash('success', 'Your password has been updated. Please sign in with your new password.');
+                goTo('login');
+            } catch (err) {
+                let msg = err.message;
+                if (/expired|invalid|jwt/i.test(msg)) {
+                    msg = 'This reset link has expired or was already used. Please request a new one from the "Forgot your password?" link.';
+                } else if (/failed to fetch|networkerror/i.test(msg)) {
+                    msg = "Couldn't reach the server. Please check your internet connection and try again.";
+                }
+                showFormError('reset-password-error', msg);
+            }
+        }
+
+        function ResetPasswordPage() {
+            return `
+                <div class="pt-20 min-h-screen bg-gray-50 px-4 py-8">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-8">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Set a New Password</h1>
+                        <p class="text-gray-600 mb-6 text-sm">Choose a new password for your GraceTools account.</p>
+                        <form onsubmit="applyNewPassword(); return false;">
+                            <div class="mb-4">
+                                <label for="new-password" class="block text-sm font-semibold text-gray-900 mb-2">New Password</label>
+                                <input id="new-password" required minlength="8" type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                                <p class="text-xs text-gray-500 mt-1">At least 8 characters</p>
+                            </div>
+                            <div class="mb-6">
+                                <label for="new-password-confirm" class="block text-sm font-semibold text-gray-900 mb-2">Confirm New Password</label>
+                                <input id="new-password-confirm" required minlength="8" type="password" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600" />
+                            </div>
+                            <div id="reset-password-error" class="hidden mb-4 border border-red-200 bg-red-50 text-red-800 rounded-lg px-4 py-3 text-sm"></div>
+                            <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 mb-4">Save New Password</button>
+                        </form>
+                        <p class="text-center text-gray-600 text-sm"><button type="button" onclick="goTo('login')" class="text-purple-600 hover:underline font-semibold cursor-pointer bg-transparent border-0 p-0 inline align-baseline">Back to Login</button></p>
                     </div>
                 </div>
             `;
@@ -2609,6 +2758,7 @@ const content = (app.sermonState.inputContent || '').trim();
             else if (app.currentPage === 'signup') content = app.isLoggedIn ? '' : SignupPage();
             else if (app.currentPage === 'login') content = app.isLoggedIn ? '' : LoginPage();
             else if (app.currentPage === 'forgot-password') content = ForgotPasswordPage();
+            else if (app.currentPage === 'reset-password') content = ResetPasswordPage();
             else if (app.currentPage === 'dashboard') content = app.isLoggedIn ? DashboardPage() : HomePage();
             else if (app.currentPage === 'sermon-viewer') content = app.isLoggedIn ? SermonViewerPage() : HomePage();
             else if (app.currentPage === 'generating') content = app.isLoggedIn ? GeneratingPage() : HomePage();
@@ -2684,12 +2834,26 @@ const content = (app.sermonState.inputContent || '').trim();
             }
         })();
 
+        // Must run before the first render so a pastor arriving from a reset
+        // email lands on the "set a new password" page instead of the homepage.
+        detectPasswordRecovery();
+
         render();
 
         // Keep the token fresh in the background so a long sermon session
         // doesn't expire mid-generation.
         refreshSessionIfNeeded();
         setInterval(refreshSessionIfNeeded, 10 * 60 * 1000);
+
+        // Credits change server-side the moment Stripe confirms payment, which
+        // is entirely outside this page's control. Refresh on load (catches
+        // Stripe redirecting back here after checkout) and whenever the tab
+        // regains focus (catches paying in a second tab, then switching back)
+        // so the credit count on screen never sits stale.
+        if (app.isLoggedIn) refreshAccount();
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible' && app.isLoggedIn) refreshAccount();
+        });
     </script>
 </body>
 </html>
