@@ -611,6 +611,13 @@ const content = (app.sermonState.inputContent || '').trim();
             // can take 10-15 seconds to respond, and sitting on the checkout page
             // that whole time makes people think the button didn't register and
             // click it again - which fires duplicate generations.
+            // Remember what they asked for. Generation inputs are not stored in
+            // the database, so this is the only way a failed sermon can be
+            // retried without the pastor retyping everything.
+            try {
+                localStorage.setItem('lastSermonRequest', JSON.stringify(app.sermonState));
+            } catch (e) {}
+
             app.generatingProjectId = projectId;
             app.generatingStartedAt = Date.now();
             app.currentPage = 'generating';
@@ -623,6 +630,20 @@ const content = (app.sermonState.inputContent || '').trim();
                     const errText = await res.text().catch(() => '');
                     throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 200) : ''));
                 }
+
+                // The server can accept the request and still stop before any
+                // sermon is written - an expired session, a rate limit, a
+                // problem with the account record. It reports that as a normal
+                // reply carrying an explanation, so check for it before we
+                // start waiting for a sermon that was never started.
+                const submitResult = await res.json().catch(() => ({}));
+                if (submitResult && submitResult.failed_before_generation) {
+                    setFlash('error', submitResult.message || "Your sermon couldn't be started. You have not been charged.");
+                    refreshAccount();
+                    goTo('dashboard');
+                    return;
+                }
+
                 app.user.credits -= total;
                 localStorage.setItem('user', JSON.stringify(app.user));
 
@@ -666,7 +687,7 @@ const content = (app.sermonState.inputContent || '').trim();
             render();
 
             if (attempt > MAX_ATTEMPTS) {
-                setFlash('info', "This is taking longer than usual \u2014 we'll email it to you as soon as it's ready. You can check your dashboard anytime.");
+                setFlash('info', "This is taking longer than usual, and we're still working on it \u2014 failed steps retry automatically. We'll email it as soon as it's ready, and it will appear on your dashboard. Nothing has been lost.");
                 goTo('dashboard');
                 return;
             }
@@ -685,7 +706,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         return;
                     }
                     if (project && project.status === 'failed') {
-                        setFlash('error', "Generation failed \u2014 your credits were refunded. Please try again.");
+                        setFlash('error', "Generation failed \u2014 your credits were refunded in full, so you have not been charged. Use the Try Again button on your dashboard to resubmit with the same settings.");
                         goTo('dashboard');
                         return;
                     }
@@ -705,6 +726,13 @@ const content = (app.sermonState.inputContent || '').trim();
                         <div class="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-6"></div>
                         <h1 class="text-2xl font-bold text-gray-900 mb-2">Building your sermon\u2026</h1>
                         <p class="text-gray-600 mb-1">This usually takes 30\u201390 seconds. You can leave this page \u2014 it will still be emailed to you.</p>
+                        ${elapsedSeconds > 75 ? `
+                            <div class="mt-5 bg-amber-50 border border-amber-200 rounded-xl p-4 text-left">
+                                <p class="text-sm text-amber-900 font-semibold mb-1">Taking longer than usual</p>
+                                <p class="text-sm text-amber-800">Nothing is lost. If a step ran into trouble we retry it automatically, so this often sorts itself out within a few minutes. Your credits are only kept if you actually get a sermon \u2014 if it fails, they're refunded in full.</p>
+                                <p class="text-sm text-amber-800 mt-2">You can safely close this page. We'll email it to you when it's done.</p>
+                            </div>
+                        ` : ''}
                         <p class="text-sm text-purple-700 font-semibold mt-4">A copy is being sent to ${app.user.email}</p>
                         <p class="text-xs text-gray-400 mt-2">Elapsed: ${elapsedSeconds}s</p>
                     </div>
@@ -1476,6 +1504,30 @@ const content = (app.sermonState.inputContent || '').trim();
             `;
         }
 
+        // Resubmit a failed sermon. The original inputs are not stored in the
+        // database, so we restore them from the copy saved in this browser when
+        // the request was first sent. If that isn't available (different device,
+        // cleared storage) we say so plainly rather than silently sending blanks.
+        function retryProject(id, ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+
+            let saved = null;
+            try {
+                const raw = localStorage.getItem('lastSermonRequest');
+                if (raw) saved = JSON.parse(raw);
+            } catch (e) { saved = null; }
+
+            if (!saved || !saved.inputContent) {
+                setFlash('info', "We don't have the original details for that sermon saved on this device, so we can't refill the form automatically. Your credits were refunded \u2014 please enter it again and we'll rebuild it.");
+                goTo('builder');
+                return;
+            }
+
+            app.sermonState = Object.assign({}, app.sermonState, saved);
+            setFlash('info', 'Your previous settings have been filled in below. Review them and start when ready \u2014 your credits were refunded, so you will only be charged once for this attempt.');
+            goTo('builder');
+        }
+
         function statusBadge(p) {
             if (p.status === 'ready') {
                 return '<span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Ready</span>';
@@ -1513,6 +1565,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                     <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Package</th>
                                     <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
                                     <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600">Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1522,6 +1575,9 @@ const content = (app.sermonState.inputContent || '').trim();
                                         <td class="px-6 py-4 text-sm text-gray-600 capitalize">${p.base_package || '\u2014'}</td>
                                         <td class="px-6 py-4">${statusBadge(p)}</td>
                                         <td class="px-6 py-4 text-sm text-gray-600">${p.created_at ? new Date(p.created_at).toLocaleDateString() : '\u2014'}</td>
+                                        <td class="px-6 py-4 text-right">
+                                            ${p.status === 'failed' ? `<button onclick="retryProject('${p.id}', event)" class="bg-white border border-purple-300 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-purple-50">Try Again</button>` : ''}
+                                        </td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -1758,6 +1814,210 @@ const content = (app.sermonState.inputContent || '').trim();
             trackEvent('export_pdf', { page: 'sermon-viewer' });
         }
 
+        // Escape anything coming back from the AI before putting it in the page.
+        function gtEsc(v) {
+            if (v === null || v === undefined) return '';
+            return String(v)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        // Renders the add-ons a pastor paid for, so they live in the app and
+        // not only in an email that may never have arrived.
+        function renderAddonResults(p) {
+            const addons = (p && p.addon_results) || [];
+            const purchased = (p && p.selected_addons) || [];
+
+            // Nothing bought - show nothing at all.
+            if (purchased.length === 0 && addons.length === 0) return '';
+
+            // Bought but nothing stored: say so honestly instead of a blank space.
+            if (addons.length === 0) {
+                return `
+                    <div class="bg-white rounded-2xl border border-gray-200 p-8 mt-6">
+                        <h2 class="text-xl font-bold text-gray-900 mb-2">Your Add-ons</h2>
+                        <p class="text-gray-600 text-sm">These were sent to your email. We don't have a copy saved in the app for this project. If you can't find the email, contact support@gracetools.com and we'll resend it.</p>
+                    </div>
+                `;
+            }
+
+            const list = (arr, ordered) => {
+                const tag = ordered ? 'ol' : 'ul';
+                const cls = ordered ? 'list-decimal' : 'list-disc';
+                return `<${tag} class="${cls} pl-6 text-gray-700 space-y-1 mb-3">` +
+                    (arr || []).map(x => `<li>${gtEsc(typeof x === 'object' ? (x.question || x.point || JSON.stringify(x)) : x)}</li>`).join('') +
+                    `</${tag}>`;
+            };
+            const head = t => `<h4 class="font-semibold text-gray-900 mt-4 mb-1">${gtEsc(t)}</h4>`;
+            const para = t => `<p class="text-gray-700 text-sm leading-relaxed mb-3" style="white-space:pre-line;">${gtEsc(t)}</p>`;
+
+            const sections = addons.map(a => {
+                const type = a.addon_type || a.title || 'Add-on';
+                let body = '';
+
+                if (a.addon_type === 'Fact Checker') {
+                    const concerns = a.concerns || [];
+                    const clean = concerns.length === 0;
+                    body += `<div class="${clean ? 'bg-green-50 border-green-500' : 'bg-amber-50 border-amber-500'} border-l-4 p-3 rounded-r-lg mb-3">
+                        <p class="font-semibold text-gray-900 text-sm">${gtEsc(a.overall_assessment || '')}</p>
+                    </div>`;
+                    if (concerns.length > 0) {
+                        body += concerns.map(c => {
+                            const sev = String(c.severity || '').toLowerCase();
+                            const color = sev === 'high' ? 'bg-red-100 text-red-800'
+                                : sev === 'medium' ? 'bg-amber-100 text-amber-800'
+                                : 'bg-gray-100 text-gray-700';
+                            return `<div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <span class="inline-block ${color} text-xs font-bold uppercase px-2 py-0.5 rounded mb-2">${gtEsc(c.severity || 'note')}</span>
+                                <p class="text-gray-700 text-sm mb-1">${gtEsc(c.issue)}</p>
+                                <p class="text-gray-500 text-xs italic">${gtEsc(c.location)}</p>
+                            </div>`;
+                        }).join('');
+                    }
+                    if (a.scripture_accuracy_note) { body += head('Scripture accuracy'); body += para(a.scripture_accuracy_note); }
+                    if (a.doctrinal_consistency_note) { body += head('Doctrinal consistency'); body += para(a.doctrinal_consistency_note); }
+                    body += `<p class="text-xs text-gray-400 mt-3">This is a review to help you check your work \u2014 not a verdict. Always confirm anything flagged against Scripture yourself.</p>`;
+
+                } else if (a.addon_type === 'Social Posts') {
+                    if (a.facebook && a.facebook.post) { body += head('Facebook'); body += para(a.facebook.post); }
+                    if (a.instagram && a.instagram.caption) { body += head('Instagram'); body += para(a.instagram.caption); }
+                    if ((a.x_twitter || []).length) { body += head('X / Twitter'); body += list(a.x_twitter, false); }
+                    if (a.quote_graphic) { body += head('Quote graphic'); body += para(a.quote_graphic); }
+                    if (a.key_verse_graphic) { body += head('Key verse graphic'); body += para(a.key_verse_graphic); }
+
+                } else if (a.addon_type === 'Blog Article') {
+                    if (a.meta_description) body += `<p class="text-gray-500 text-sm italic mb-3">${gtEsc(a.meta_description)}</p>`;
+                    if (a.introduction) body += para(a.introduction);
+                    (a.body_sections || []).forEach(sec => { body += head(sec.heading); body += para(sec.content); });
+                    if (a.conclusion) body += para(a.conclusion);
+                    if ((a.suggested_tags || []).length) body += `<p class="text-gray-500 text-xs">Tags: ${gtEsc((a.suggested_tags || []).join(', '))}</p>`;
+
+                } else if (a.addon_type === 'YouTube Title & Thumbnail') {
+                    if ((a.titles || []).length) { body += head('Title options'); body += list(a.titles, true); }
+                    if ((a.thumbnail_ideas || []).length) {
+                        body += head('Thumbnail ideas');
+                        body += (a.thumbnail_ideas || []).map(t => `<div class="mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200"><p class="text-gray-700 text-sm"><strong>Text:</strong> ${gtEsc(t.text_overlay)}</p><p class="text-gray-600 text-sm"><strong>Visual:</strong> ${gtEsc(t.visual_description)}</p></div>`).join('');
+                    }
+
+                } else if (a.addon_type === 'YouTube Description') {
+                    if (a.description) body += para(a.description);
+                    if (a.suggested_pinned_comment) { body += head('Suggested pinned comment'); body += para(a.suggested_pinned_comment); }
+
+                } else if (a.addon_type === 'YouTube Tags') {
+                    body += para((a.tags || []).join(', '));
+
+                } else if (a.addon_type === 'YouTube Chapters') {
+                    if (a.note) body += `<p class="text-gray-500 text-xs italic mb-2">${gtEsc(a.note)}</p>`;
+                    body += (a.chapters || []).map(c => `<div class="mb-2"><p class="text-gray-900 text-sm font-semibold">${gtEsc(c.placeholder_time)} \u2014 ${gtEsc(c.title)}</p><p class="text-gray-600 text-sm">${gtEsc(c.content_summary)}</p></div>`).join('');
+
+                } else if (a.addon_type === 'YouTube Hook') {
+                    body += list(a.hooks, true);
+
+                } else if (a.addon_type === 'Printable Handout' || a.fill_in_sections) {
+                    if (a.big_idea_blank) body += para(a.big_idea_blank);
+                    (a.fill_in_sections || []).forEach(sec => {
+                        body += head(sec.heading);
+                        body += (sec.blanks || []).map(b => `<p class="text-gray-700 text-sm mb-1">${gtEsc(b)}</p>`).join('');
+                    });
+                    if (a.takeaway_blank) body += `<p class="text-purple-700 font-semibold mt-3">${gtEsc(a.takeaway_blank)}</p>`;
+
+                } else {
+                    // Youth Version, Small Group Guide, Discussion Questions and
+                    // anything added later all fall through to these shapes.
+                    if (a.big_idea) body += para(a.big_idea);
+                    if (a.overview) body += para(a.overview);
+                    if (a.opening_hook) { body += head('Opening hook'); body += para(a.opening_hook); }
+                    if (a.ice_breaker) { body += head('Ice breaker'); body += para(a.ice_breaker); }
+                    if (a.scripture_reading) { body += head('Scripture reading'); body += para(a.scripture_reading); }
+                    if ((a.main_points || []).length) {
+                        body += head('Main points');
+                        body += (a.main_points || []).map((pt, i) => `<div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200"><p class="font-semibold text-gray-900 text-sm mb-1">${i + 1}. ${gtEsc(pt.point)}</p><p class="text-gray-600 text-sm">${gtEsc(pt.explanation)}</p>${pt.scripture ? `<p class="text-purple-600 text-xs italic mt-1">${gtEsc(pt.scripture)}</p>` : ''}${pt.application ? `<p class="text-gray-700 text-xs mt-1"><strong>Application:</strong> ${gtEsc(pt.application)}</p>` : ''}</div>`).join('');
+                    }
+                    const qs = a.discussion_questions || a.questions || [];
+                    if (qs.length) { body += head('Discussion questions'); body += list(qs, true); }
+                    if ((a.key_takeaways || []).length) { body += head('Key takeaways'); body += list(a.key_takeaways, false); }
+                    if (a.key_verse) { body += head('Key verse'); body += para(a.key_verse); }
+                    if (a.prayer_focus) { body += head('Prayer focus'); body += para(a.prayer_focus); }
+                    if (a.action_step) { body += head('Action step'); body += para(a.action_step); }
+                    if (a.closing_challenge) { body += head('Closing challenge'); body += para(a.closing_challenge); }
+                }
+
+                if (!body) body += `<p class="text-gray-500 text-sm">This add-on was generated but has nothing we can display here. It was included in your email.</p>`;
+
+                return `
+                    <div class="mb-4 border border-gray-200 rounded-xl overflow-hidden">
+                        <button type="button" onclick="toggleAddon('${gtEsc(type).replace(/'/g, '')}')" class="w-full flex items-center justify-between px-5 py-4 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer border-0">
+                            <span class="font-semibold text-gray-900">${gtEsc(type)}</span>
+                            <span class="text-purple-600 text-sm">${app.openAddons && app.openAddons[type] ? 'Hide' : 'Show'}</span>
+                        </button>
+                        ${app.openAddons && app.openAddons[type] ? `<div class="px-5 py-4 bg-white">${body}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="bg-white rounded-2xl border border-gray-200 p-8 mt-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-1">Your Add-ons</h2>
+                    <p class="text-gray-500 text-sm mb-5">These were also emailed to you. They're saved here so you always have them.</p>
+                    ${sections}
+                    <div class="mt-4 flex gap-2">
+                        <button onclick="downloadAddonsAsWord()" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50">Download Add-ons (Word)</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleAddon(type) {
+            if (!app.openAddons) app.openAddons = {};
+            app.openAddons[type] = !app.openAddons[type];
+            render();
+        }
+
+        // Flattens whatever shape each add-on has into readable lines.
+        function addonsToPlainText(p) {
+            const addons = (p && p.addon_results) || [];
+            const lines = [];
+            addons.forEach(a => {
+                lines.push((a.addon_type || a.title || 'Add-on').toUpperCase());
+                lines.push('');
+                const walk = (val, indent) => {
+                    if (val === null || val === undefined || val === '') return;
+                    if (Array.isArray(val)) { val.forEach(v => walk(v, indent)); return; }
+                    if (typeof val === 'object') {
+                        Object.keys(val).forEach(k => {
+                            if (k === 'addon_type') return;
+                            const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                            const v = val[k];
+                            if (v && typeof v === 'object') { lines.push(indent + label + ':'); walk(v, indent + '  '); }
+                            else if (v !== null && v !== undefined && v !== '') lines.push(indent + label + ': ' + v);
+                        });
+                        return;
+                    }
+                    lines.push(indent + val);
+                };
+                walk(a, '');
+                lines.push('');
+            });
+            return lines.join('\n');
+        }
+
+        function downloadAddonsAsWord() {
+            const p = app.viewingProject;
+            const text = addonsToPlainText(p);
+            if (!text.trim()) { setFlash('error', 'There are no saved add-ons to download for this project.'); render(); return; }
+            const body = text.split('\n').map(l => l ? `<p>${gtEsc(l)}</p>` : '<p>&nbsp;</p>').join('');
+            const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Add-ons</title></head><body style="font-family:Georgia,serif;">${body}</body></html>`;
+            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = ((p.title || 'sermon').replace(/[^a-z0-9]+/gi, '-').toLowerCase()) + '-addons.doc';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         function SermonViewerPage() {
             const p = app.viewingProject;
             if (!p || !p.sermon_json) {
@@ -1891,6 +2151,8 @@ const content = (app.sermonState.inputContent || '').trim();
                                 Estimated speaking time: ${s.estimated_speaking_time || '\u2014'}
                             </div>
                         </div>
+
+                        ${renderAddonResults(p)}
 
                         ${(function () {
                             // Offered here rather than during generation: while they were
