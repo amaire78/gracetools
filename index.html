@@ -1086,7 +1086,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         <p class="text-sm text-purple-700 mb-8">Tools marked <strong>3 options</strong> give you three genuinely different versions to choose from.</p>
 
                         <div class="grid lg:grid-cols-3 gap-8 items-start">
-                            <div class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+                            <div data-keep-scroll="quick-tools-list" class="lg:col-span-1 bg-white rounded-2xl border border-gray-200 p-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                                 ${categories.map(cat => '<div class="mb-4"><p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 px-2">' + cat + '</p>'
                                     + QUICK_TOOLS.filter(t => t.category === cat).map(t =>
                                         '<button onclick="app.quickTools.selectedTool=&#39;' + t.key + '&#39;; app.quickTools.result=null; render();" class="w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ' + (app.quickTools.selectedTool === t.key ? 'bg-purple-100 text-purple-700 font-semibold' : 'text-gray-700 hover:bg-gray-50') + '">'
@@ -1628,8 +1628,17 @@ const content = (app.sermonState.inputContent || '').trim();
         // Sends the finished sermon back through the repurpose pipeline as a
         // discounted bundle. Reuses the existing repurpose webhook rather than
         // adding another endpoint.
-        async function orderFollowUpBundle() {
-            const bundle = ['Small Group Guide', 'Discussion Questions', 'Social Posts', 'Blog Article'];
+        async function orderFollowUpBundle(bundleJson) {
+            // The offer only ever lists what this sermon is missing, so the
+            // order must use that same list - not a fixed one that could
+            // re-buy something the pastor already has.
+            let bundle = ['Small Group Guide', 'Discussion Questions', 'Social Posts', 'Blog Article'];
+            if (bundleJson) {
+                try {
+                    const parsed = JSON.parse(bundleJson);
+                    if (Array.isArray(parsed) && parsed.length) bundle = parsed;
+                } catch (e) {}
+            }
             const fullPrice = bundle.reduce((sum, a) => sum + (ALL_ADDON_PRICES[a] || 0), 0);
             const offerPrice = Math.ceil(fullPrice * 0.6);
 
@@ -2158,18 +2167,47 @@ const content = (app.sermonState.inputContent || '').trim();
                             // Offered here rather than during generation: while they were
                             // waiting they were anxious about whether it worked. Now the
                             // sermon is in front of them and they can see what it's worth.
-                            const bundle = ['Small Group Guide', 'Discussion Questions', 'Social Posts', 'Blog Article'];
+                            //
+                            // Only offer what they DON'T already have. Suggesting a small
+                            // group guide to someone whose package already produced one
+                            // reads as not paying attention, and it invites them to pay
+                            // twice for the same thing.
+                            const candidates = ['Small Group Guide', 'Discussion Questions', 'Social Posts', 'Blog Article'];
+
+                            const owned = {};
+                            (p.selected_addons || []).forEach(a => { owned[a] = true; });
+                            (p.addon_results || []).forEach(a => { if (a && a.addon_type) owned[a.addon_type] = true; });
+
+                            // The sermon itself may already contain the material, which
+                            // counts as having it just as much as buying it separately.
+                            if ((s.discussion_questions || []).length > 0) owned['Discussion Questions'] = true;
+
+                            const bundle = candidates.filter(a => !owned[a]);
+                            if (bundle.length === 0) return '';
+
                             const fullPrice = bundle.reduce((sum, a) => sum + (ALL_ADDON_PRICES[a] || 0), 0);
+                            if (fullPrice <= 0) return '';
                             const offerPrice = Math.ceil(fullPrice * 0.6);
                             if (app.user.credits < offerPrice) return '';
+
+                            const names = bundle.length === 1
+                                ? bundle[0].toLowerCase()
+                                : bundle.slice(0, -1).map(x => x.toLowerCase()).join(', ') + ' and ' + bundle[bundle.length - 1].toLowerCase();
+                            const heading = bundle.length === candidates.length
+                                ? 'Get more from this sermon'
+                                : 'Add what this sermon doesn\'t include yet';
+                            const buttonText = bundle.length === 1
+                                ? 'Add it \u2014 ' + offerPrice + ' credits'
+                                : 'Add all ' + bundle.length + ' \u2014 ' + offerPrice + ' credits';
+
                             return '<div class="mt-6 bg-purple-50 border border-purple-200 rounded-2xl p-6">'
                                 + '<div class="flex items-start justify-between flex-wrap gap-4">'
                                 + '<div class="flex-1 min-w-[240px]">'
-                                + '<p class="font-bold text-gray-900 mb-1">Get more from this sermon</p>'
-                                + '<p class="text-sm text-gray-700 mb-2">Turn it into a small group guide, discussion questions, social posts and a blog article \u2014 all four for ' + offerPrice + ' credits instead of ' + fullPrice + '.</p>'
+                                + '<p class="font-bold text-gray-900 mb-1">' + heading + '</p>'
+                                + '<p class="text-sm text-gray-700 mb-2">Turn it into ' + names + ' \u2014 ' + (bundle.length === 1 ? 'for ' : 'all ' + bundle.length + ' for ') + offerPrice + ' credits instead of ' + fullPrice + '.</p>'
                                 + '<p class="text-xs text-gray-500">You have ' + app.user.credits + ' credits.</p>'
                                 + '</div>'
-                                + '<button onclick="orderFollowUpBundle()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 whitespace-nowrap">Add all four \u2014 ' + offerPrice + ' credits</button>'
+                                + '<button onclick="orderFollowUpBundle(' + JSON.stringify(JSON.stringify(bundle)).replace(/"/g, '&quot;') + ')" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 whitespace-nowrap">' + buttonText + '</button>'
                                 + '</div></div>';
                         })()}
                     </div>
@@ -3053,6 +3091,15 @@ const content = (app.sermonState.inputContent || '').trim();
             const _selStart = document.activeElement && document.activeElement.selectionStart;
             const _hasFlashToShow = !!app.flash;
 
+            // Panels with their own scrollbar (the Quick Tools list) lose their
+            // position when innerHTML is replaced, so picking a tool near the
+            // bottom snapped the list back to the top. Remember each panel's
+            // position and put it back.
+            const _panelScroll = {};
+            document.querySelectorAll('[data-keep-scroll]').forEach(function (el) {
+                _panelScroll[el.getAttribute('data-keep-scroll')] = el.scrollTop;
+            });
+
             document.getElementById('app').innerHTML = Header() + FlashBanner() + content + `
                 <footer class="bg-white border-t border-gray-200 px-6 py-8 mt-12">
                     <div class="max-w-7xl mx-auto text-center text-sm text-gray-600">
@@ -3068,6 +3115,13 @@ const content = (app.sermonState.inputContent || '').trim();
                     </div>
                 </footer>
             `;
+
+            // Restore inner panel positions regardless of the page-level scroll
+            // decision below - a flash banner is no reason to reset a side list.
+            document.querySelectorAll('[data-keep-scroll]').forEach(function (el) {
+                const saved = _panelScroll[el.getAttribute('data-keep-scroll')];
+                if (typeof saved === 'number') el.scrollTop = saved;
+            });
 
             if (_hasFlashToShow) {
                 window.scrollTo(0, 0);
