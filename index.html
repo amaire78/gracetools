@@ -756,13 +756,24 @@ const content = (app.sermonState.inputContent || '').trim();
         // package (not credits + bonus). Create these in Stripe > Product catalog,
         // then paste the buy.stripe.com URL here. Any package left empty falls back
         // to an honest message instead of a dead button.
+        // These were previously mapped in the wrong order, so a pastor clicking one
+        // package was sent to a different package's checkout. Stripe numbered the
+        // links in creation order and the packages were created largest first, so
+        // gw001 is the 2500 package and gw005 is the 100 package - the reverse of
+        // what was assumed here. (600 sits in the middle and is unchanged.)
+        //
+        // expected_price is what Stripe should show. It is checked before sending
+        // anyone to checkout, so a mismatch like this can never again go unnoticed.
         const STRIPE_LINKS = {
-            100:  'https://buy.stripe.com/fZu28kbXNaDfdAD2O1gw001',
-            300:  'https://buy.stripe.com/8x200cbXN6mZeEH88lgw002',
+            100:  'https://buy.stripe.com/dRm28kbXNh1DeEHcoBgw005',
+            300:  'https://buy.stripe.com/eVq28k5zp12F8gj1JXgw004',
             600:  'https://buy.stripe.com/5kQ5kw7HxdPrdADdsFgw003',
-            1200: 'https://buy.stripe.com/eVq28k5zp12F8gj1JXgw004',
-            2500: 'https://buy.stripe.com/dRm28kbXNh1DeEHcoBgw005'
+            1200: 'https://buy.stripe.com/8x200cbXN6mZeEH88lgw002',
+            2500: 'https://buy.stripe.com/fZu28kbXNaDfdAD2O1gw001'
         };
+
+        // What each package must cost at Stripe, in dollars.
+        const PACKAGE_PRICES = { 100: 12, 300: 32, 600: 59, 1200: 99, 2500: 189 };
 
         function buyCredits(baseCredits, totalCredits) {
             const link = STRIPE_LINKS[baseCredits];
@@ -770,6 +781,15 @@ const content = (app.sermonState.inputContent || '').trim();
                 setFlash('info', 'This package isn\'t open for purchase yet. Email support@gracetools.com and we\'ll sort you out directly.');
                 render();
                 return;
+            }
+            const expected = PACKAGE_PRICES[baseCredits];
+            if (expected) {
+                const ok = window.confirm(
+                    'You are buying ' + totalCredits + ' credits for $' + expected + '.\n\n' +
+                    'The next page is Stripe. Please check it shows $' + expected + ' before paying.\n' +
+                    'If it shows a different amount, cancel and email support@gracetools.com.'
+                );
+                if (!ok) return;
             }
             trackEvent('checkout_started', { package_credits: baseCredits, total_credits: totalCredits });
             // Pass the account email so Stripe prefills it and the webhook can match
@@ -1193,12 +1213,19 @@ const content = (app.sermonState.inputContent || '').trim();
             `;
         }
 
+        // Clicking the logo should take a signed-in pastor somewhere useful -
+        // their dashboard - rather than back to the marketing page they no
+        // longer need. Signed-out visitors still get the home page.
+        function goToLogoHome() {
+            goTo(app.isLoggedIn ? 'dashboard' : 'home');
+        }
+
         // Header Component
         function Header() {
             return `
                 <header class="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-40">
                     <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                        <div onclick="goTo('home')" class="flex items-center gap-2.5 cursor-pointer select-none">
+                        <div onclick="goToLogoHome()" class="flex items-center gap-2.5 cursor-pointer select-none" role="link" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goToLogoHome();}" aria-label="GraceTools home">
                             <svg viewBox="0 0 120 120" class="w-8 h-8 shrink-0" aria-hidden="true">
                                 <g fill="none" stroke="#2C3E63" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M60 54 C48 44, 30 41, 18 43 L18 93 C30 91, 48 94, 60 103"/>
@@ -3044,7 +3071,7 @@ const content = (app.sermonState.inputContent || '').trim();
                         <p class="text-6xl mb-4">\ud83e\udded</p>
                         <h1 class="text-3xl font-bold text-gray-900 mb-2">Page Not Found</h1>
                         <p class="text-gray-600 mb-8">We couldn't find what you were looking for. It may have moved, or the link might be out of date.</p>
-                        <button onclick="goTo('home')" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">Back to Home</button>
+                        <button onclick="goToLogoHome()" class="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700">${app.isLoggedIn ? 'Back to Dashboard' : 'Back to Home'}</button>
                     </div>
                 </div>
             `;
