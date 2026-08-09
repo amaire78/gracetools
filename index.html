@@ -2265,9 +2265,9 @@ const content = (app.sermonState.inputContent || '').trim();
                                 return `
                                 <div class="rounded-2xl border p-8 ${pkg.best ? 'bg-purple-50 border-purple-200 relative' : 'bg-white border-gray-200'}">
                                     ${pkg.best ? '<div class="absolute -top-3 left-8 bg-purple-600 text-white px-4 py-1 rounded-full text-sm font-semibold">Most Popular</div>' : ''}
-                                    <h3 class="text-2xl font-bold text-gray-900 mb-2">${pkg.credits} Credits</h3>
+                                    <h3 class="text-2xl font-bold text-gray-900 mb-1">${totalCredits} Credits</h3>
+                                    ${pkg.bonus > 0 ? `<p class="text-sm text-green-600 font-semibold mb-2">${pkg.credits} + ${pkg.bonus} bonus included</p>` : '<div class="mb-2"></div>'}
                                     <p class="text-4xl font-bold text-purple-600 mb-2">$${pkg.price}</p>
-                                    ${pkg.bonus > 0 ? `<p class="text-sm text-green-600 font-semibold mb-2">+${pkg.bonus} bonus credits!</p>` : '<div class="mb-2"></div>'}
                                     <p class="text-xs text-gray-500 mb-6">\u2248 ${essentialsCount} Essentials sermons or ${preacherCount} Preacher sermons</p>
                                     <button onclick="buyCredits(${pkg.credits}, ${totalCredits})" class="w-full py-3 rounded-lg font-semibold mb-6 ${pkg.best ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}">Buy Now</button>
                                     <div class="space-y-2 text-sm text-gray-600">
