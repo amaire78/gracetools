@@ -527,11 +527,76 @@
             render();
         }
 
+        // Supported by the transcription service. Checking here means a pastor
+        // gets a clear answer immediately instead of waiting through an upload
+        // that was never going to work.
+        const ALLOWED_AUDIO_EXTENSIONS = ['mp3', 'm4a', 'wav', 'ogg', 'oga', 'webm', 'flac', 'mp4', 'mpga', 'mpeg'];
+
+        // Audio is sent as text, which makes it about a third larger in transit,
+        // so the real ceiling is well below the server's raw limit. 12MB stays
+        // safely inside n8n's default and still covers a 90 minute sermon
+        // exported at voice quality (16 kbps mono is roughly 11MB for 90 min).
+        // Groq downsamples everything to 16KHz mono anyway, so exporting at
+        // voice quality costs no transcription accuracy whatsoever.
+        const MAX_AUDIO_MB = 12;
+
+        function checkAudioFile(file) {
+            const name = (file.name || '').toLowerCase();
+            const ext = name.indexOf('.') > -1 ? name.split('.').pop() : '';
+            if (!ext || ALLOWED_AUDIO_EXTENSIONS.indexOf(ext) === -1) {
+                return "We can't read that file type. Please upload MP3, M4A, WAV, OGG, WEBM or FLAC.";
+            }
+            if (file.size > MAX_AUDIO_MB * 1024 * 1024) {
+                const mb = (file.size / (1024 * 1024)).toFixed(1);
+                return 'That file is ' + mb + 'MB and the limit is ' + MAX_AUDIO_MB + 'MB. Good news: re-exporting it at voice quality will shrink it a lot without hurting the transcription at all. See "Recording too big?" below the upload box for how.';
+            }
+            if (file.size < 1024) {
+                return 'That file looks empty. Please check the recording and try again.';
+            }
+            return null;
+        }
+
+        // Shown under the audio upload areas. Written for someone who has never
+        // thought about bitrates - each step names the actual buttons to tap.
+        function audioSizeHelp() {
+            return `
+                <details class="mt-3 text-left bg-gray-50 border border-gray-200 rounded-lg">
+                    <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-gray-700 select-none">Recording too big? Here's how to shrink it</summary>
+                    <div class="px-4 pb-4 text-sm text-gray-600 space-y-3">
+                        <p>A ${MAX_AUDIO_MB}MB limit sounds small, but it fits about <strong>90 minutes</strong> of preaching once the file is saved at voice quality. Sermons are speech, not music \u2014 and our transcription converts everything to plain voice audio anyway, so <strong>saving it smaller does not make the transcript any less accurate</strong>.</p>
+
+                        <div>
+                            <p class="font-semibold text-gray-800">iPhone (Voice Memos)</p>
+                            <p>Settings \u2192 Voice Memos \u2192 Audio Quality \u2192 choose <strong>Compressed</strong>. Recordings made after that will be much smaller. For one you already made, open it, tap the three dots, then Save to Files \u2014 it saves compressed.</p>
+                        </div>
+
+                        <div>
+                            <p class="font-semibold text-gray-800">Android</p>
+                            <p>In your recorder app, open Settings and set the recording format or quality to the <strong>lowest</strong> option (often listed as AAC, M4A, or "Low"). Voice recordings sound fine at that setting.</p>
+                        </div>
+
+                        <div>
+                            <p class="font-semibold text-gray-800">Computer (Audacity \u2014 free)</p>
+                            <p>Open the recording, then File \u2192 Export \u2192 Export as MP3. Set Quality to around <strong>32 kbps</strong> and Mode to <strong>Mono</strong>. A 90 minute sermon comes out near 20MB at 32 kbps, so choose <strong>16 kbps</strong> if it is still too large.</p>
+                        </div>
+
+                        <div>
+                            <p class="font-semibold text-gray-800">Recording straight from a soundboard or camera</p>
+                            <p>Those files are usually very large because they are recorded in studio quality. Export just the audio at the lowest voice setting your software offers.</p>
+                        </div>
+
+                        <p class="text-xs text-gray-500 pt-1">Still stuck? Email support@gracetools.com and we will help you get it in.</p>
+                    </div>
+                </details>
+            `;
+        }
+
         async function handleAudioUpload(input) {
             const file = input.files[0];
             if (!file) return;
-            if (file.size > 20 * 1024 * 1024) {
-                setFlash('error', 'Audio file is too large - please upload a file under 20MB.');
+            const audioCheck = checkAudioFile(file);
+            if (audioCheck) {
+                setFlash('error', audioCheck);
                 render();
                 return;
             }
@@ -965,8 +1030,9 @@ const content = (app.sermonState.inputContent || '').trim();
         async function handleRepurposeAudioUpload(input) {
             const file = input.files[0];
             if (!file) return;
-            if (file.size > 20 * 1024 * 1024) {
-                setFlash('error', 'Audio file is too large - please upload a file under 20MB.');
+            const audioCheck = checkAudioFile(file);
+            if (audioCheck) {
+                setFlash('error', audioCheck);
                 render();
                 return;
             }
@@ -1055,12 +1121,13 @@ const content = (app.sermonState.inputContent || '').trim();
 
                             <div class="my-4 text-center text-xs text-gray-400 uppercase tracking-wide">or</div>
 
-                            <input type="file" id="repurpose-audio-input" accept="audio/*" onchange="handleRepurposeAudioUpload(this)" class="hidden" />
+                            <input type="file" id="repurpose-audio-input" accept=".mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mpga,audio/*" onchange="handleRepurposeAudioUpload(this)" class="hidden" />
                             <label for="repurpose-audio-input" class="flex flex-col items-center justify-center border-2 border-dashed ${app.repurpose.uploading ? 'border-purple-400 bg-purple-50' : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'} rounded-lg p-6 cursor-pointer transition">
                                 <span class="text-2xl mb-1">${app.repurpose.uploading ? '\u23f3' : '\ud83c\udfa4'}</span>
                                 <span class="text-sm font-semibold text-gray-700">${app.repurpose.uploading ? 'Transcribing\u2026' : 'Upload the audio recording instead'}</span>
-                                <span class="text-xs text-gray-400 mt-1">Max 20MB</span>
+                                ${app.repurpose.uploading ? '' : `<span class="text-xs text-gray-500 mt-1">MP3, M4A, WAV, OGG, WEBM or FLAC \u2014 up to ${MAX_AUDIO_MB}MB (about 90 minutes at voice quality)</span>`}
                             </label>
+                            ${audioSizeHelp()}
                         </div>
 
                         <div class="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
@@ -2326,7 +2393,7 @@ const content = (app.sermonState.inputContent || '').trim();
                                         `).join('')}
                                     </div>
                                     ${currentInputType.key === 'pdf' ? `
-                                        <input type="file" id="pdf-upload-input" accept="application/pdf" onchange="handlePdfUpload(this)" class="hidden" />
+                                        <input type="file" id="pdf-upload-input" accept=".pdf,application/pdf" onchange="handlePdfUpload(this)" class="hidden" />
                                         <label for="pdf-upload-input" class="flex flex-col items-center justify-center border-2 border-dashed ${app.uploadState.uploading ? 'border-purple-400 bg-purple-50' : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'} rounded-lg p-8 cursor-pointer transition">
                                             <span class="text-3xl mb-2">${app.uploadState.uploading ? '\u23f3' : '\ud83d\udcc4'}</span>
                                             <span class="text-sm font-semibold text-gray-700">${app.uploadState.uploading ? 'Extracting text\u2026' : 'Click to upload a PDF'}</span>
@@ -2334,12 +2401,13 @@ const content = (app.sermonState.inputContent || '').trim();
                                         </label>
                                         ${app.sermonState.inputContent ? `<div class="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-center justify-between"><span>\u2713 Extracted ${app.sermonState.inputContent.length} characters${app.uploadState.fileName ? ' from "' + app.uploadState.fileName + '"' : ''}</span><button onclick="app.sermonState.inputContent=''; app.uploadState.fileName=null; render();" class="text-xs underline">Clear</button></div>` : ''}
                                     ` : currentInputType.key === 'audio' ? `
-                                        <input type="file" id="audio-upload-input" accept="audio/*" onchange="handleAudioUpload(this)" class="hidden" />
+                                        <input type="file" id="audio-upload-input" accept=".mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mpga,audio/*" onchange="handleAudioUpload(this)" class="hidden" />
                                         <label for="audio-upload-input" class="flex flex-col items-center justify-center border-2 border-dashed ${app.uploadState.uploading ? 'border-purple-400 bg-purple-50' : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'} rounded-lg p-8 cursor-pointer transition">
                                             <span class="text-3xl mb-2">${app.uploadState.uploading ? '\u23f3' : '\ud83c\udfa4'}</span>
                                             <span class="text-sm font-semibold text-gray-700">${app.uploadState.uploading ? 'Transcribing audio\u2026 this can take a minute' : 'Click to upload an audio file'}</span>
-                                            <span class="text-xs text-gray-400 mt-1">Max 20MB</span>
+                                            ${app.uploadState.uploading ? '' : `<span class="text-xs text-gray-500 mt-1">MP3, M4A, WAV, OGG, WEBM or FLAC \u2014 up to ${MAX_AUDIO_MB}MB (about 90 minutes at voice quality)</span>`}
                                         </label>
+                                        ${audioSizeHelp()}
                                         ${app.sermonState.inputContent ? `<div class="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-center justify-between"><span>\u2713 Transcribed ${app.sermonState.inputContent.split(' ').length} words${app.uploadState.fileName ? ' from "' + app.uploadState.fileName + '"' : ''}</span><button onclick="app.sermonState.inputContent=''; app.uploadState.fileName=null; render();" class="text-xs underline">Clear</button></div>` : ''}
                                     ` : `
                                         <textarea oninput="updateInputContent(this.value)" placeholder="${currentInputType.placeholder}" maxlength="5000" class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-purple-600 resize-none" rows="4">${app.sermonState.inputContent}</textarea>
