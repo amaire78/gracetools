@@ -847,21 +847,56 @@ const content = (app.sermonState.inputContent || '').trim();
                 render();
                 return;
             }
-            const expected = PACKAGE_PRICES[baseCredits];
-            if (expected) {
-                const ok = window.confirm(
-                    'You are buying ' + totalCredits + ' credits for $' + expected + '.\n\n' +
-                    'The next page is Stripe. Please check it shows $' + expected + ' before paying.\n' +
-                    'If it shows a different amount, cancel and email support@gracetools.com.'
-                );
-                if (!ok) return;
-            }
-            trackEvent('checkout_started', { package_credits: baseCredits, total_credits: totalCredits });
+            // Shown as a normal panel rather than a browser confirm box. A confirm
+            // box freezes the whole page while it is open, which made the Buy
+            // button appear to hang for over two seconds.
+            app.pendingPurchase = {
+                baseCredits: baseCredits,
+                totalCredits: totalCredits,
+                price: PACKAGE_PRICES[baseCredits] || null
+            };
+            render();
+        }
+
+        function cancelPurchase() {
+            app.pendingPurchase = null;
+            render();
+        }
+
+        function confirmPurchase() {
+            const p = app.pendingPurchase;
+            if (!p) return;
+            const link = STRIPE_LINKS[p.baseCredits];
+            app.pendingPurchase = null;
+            trackEvent('checkout_started', { package_credits: p.baseCredits, total_credits: p.totalCredits });
+
             // Pass the account email so Stripe prefills it and the webhook can match
             // the payment back to the right account.
             const sep = link.indexOf('?') === -1 ? '?' : '&';
-            window.location.href = link + sep + 'prefilled_email=' + encodeURIComponent(app.user.email)
+            const url = link + sep + 'prefilled_email=' + encodeURIComponent(app.user.email)
                 + '&client_reference_id=' + encodeURIComponent(ensureUserId());
+
+            // Open checkout in a new tab so GraceTools stays open behind it. Stripe
+            // has no link back to us, so without this a pastor finishes paying and
+            // is stranded with no way to return.
+            const tab = window.open(url, '_blank');
+            if (!tab) {
+                // Popup blocked - fall back to navigating, which still works.
+                window.location.href = url;
+                return;
+            }
+            app.awaitingPayment = true;
+            render();
+        }
+
+        // Called when they come back from the Stripe tab.
+        async function finishedPaying() {
+            app.awaitingPayment = false;
+            setFlash('info', 'Checking for your credits\u2026');
+            render();
+            await refreshAccount();
+            setFlash('success', 'You now have ' + app.user.credits + ' credits. Ready when you are.');
+            goTo('builder');
         }
 
         async function sendPasswordReset() {
@@ -2309,10 +2344,41 @@ const content = (app.sermonState.inputContent || '').trim();
             `;
         }
 
+        // Confirmation and post-payment panels. Rendered inside the page rather
+        // than as browser dialogs, which block the whole page while open.
+        function purchasePanels() {
+            if (app.awaitingPayment) {
+                return `
+                    <div class="mb-8 bg-white border-2 border-purple-300 rounded-2xl p-6 text-center">
+                        <p class="text-lg font-bold text-gray-900 mb-1">Finishing your purchase in the other tab</p>
+                        <p class="text-sm text-gray-600 mb-4">Once Stripe says your payment went through, come back here and press the button below. Your credits usually arrive within a few seconds.</p>
+                        <div class="flex flex-wrap gap-3 justify-center">
+                            <button onclick="finishedPaying()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700">I've paid \u2014 take me to Build a Sermon</button>
+                            <button onclick="app.awaitingPayment=false; render();" class="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50">I didn't finish</button>
+                        </div>
+                    </div>
+                `;
+            }
+            const p = app.pendingPurchase;
+            if (!p) return '';
+            return `
+                <div class="mb-8 bg-white border-2 border-purple-300 rounded-2xl p-6">
+                    <p class="text-lg font-bold text-gray-900 mb-1">You're buying ${p.totalCredits} credits${p.price ? ' for $' + p.price : ''}</p>
+                    ${p.price ? `<p class="text-sm text-gray-600 mb-1">Checkout opens in a new tab. Please check it shows <strong>$${p.price}</strong> before paying \u2014 if the amount is different, close it and email support@gracetools.com.</p>` : ''}
+                    <p class="text-sm text-gray-500 mb-4">This page stays open, so you can come straight back when you're done.</p>
+                    <div class="flex flex-wrap gap-3">
+                        <button onclick="confirmPurchase()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700">Continue to payment</button>
+                        <button onclick="cancelPurchase()" class="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50">Cancel</button>
+                    </div>
+                </div>
+            `;
+        }
+
         function PricingPage() {
             return `
                 <div class="pt-20 min-h-screen bg-gray-50 px-6 py-12">
                     <div class="max-w-6xl mx-auto">
+                        ${purchasePanels()}
                         <div class="text-center mb-12">
                             <h1 class="text-4xl font-bold text-gray-900 mb-4">Simple, Transparent Pricing</h1>
                             <p class="text-xl text-gray-600">Buy credits. Use them. They never expire.</p>
