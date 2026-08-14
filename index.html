@@ -694,43 +694,42 @@ const content = (app.sermonState.inputContent || '').trim();
             render();
             startGeneratingTicker();
 
-            try {
-                const res = await gtFetch(SERMON_WEBHOOK_URL, payload);
-                if (!res.ok) {
-                    const errText = await res.text().catch(() => '');
-                    throw new Error('Server responded with ' + res.status + (errText ? ': ' + errText.slice(0, 200) : ''));
-                }
+            // The proxy in front of n8n cuts the connection before a long sermon
+            // finishes, even though generation succeeds. So we no longer wait on
+            // the response to decide anything - polling the project row is the
+            // single source of truth. Start it immediately.
+            pollForCompletion(projectId);
 
-                // The server can accept the request and still stop before any
-                // sermon is written - an expired session, a rate limit, a
-                // problem with the account record. It reports that as a normal
-                // reply carrying an explanation, so check for it before we
-                // start waiting for a sermon that was never started.
-                const submitResult = await res.json().catch(() => ({}));
+            app.user.credits -= total;
+            localStorage.setItem('user', JSON.stringify(app.user));
+
+            sendNotification('project_submitted', {
+                user_email: destinationEmail,
+                user_name: app.user.name,
+                base_package: app.sermonState.package,
+                input_type: app.sermonState.inputType,
+                credits_cost: total
+            });
+
+            // Fire-and-forget. A dropped connection here means nothing - the work
+            // carries on server-side and polling will see the result. The only
+            // thing worth reacting to is the server explicitly telling us it
+            // stopped before generation ever started.
+            gtFetch(SERMON_WEBHOOK_URL, payload).then(async function (res) {
+                let submitResult = {};
+                try { submitResult = await res.json(); } catch (e) { return; }
                 if (submitResult && submitResult.failed_before_generation) {
+                    app.generatingProjectId = null;
+                    app.user.credits += total;
+                    localStorage.setItem('user', JSON.stringify(app.user));
                     setFlash('error', submitResult.message || "Your sermon couldn't be started. You have not been charged.");
                     refreshAccount();
                     goTo('dashboard');
-                    return;
                 }
-
-                app.user.credits -= total;
-                localStorage.setItem('user', JSON.stringify(app.user));
-
-                // Only after the server has accepted the job - never email about
-                // a sermon that failed to submit.
-                sendNotification('project_submitted', {
-                    user_email: destinationEmail,
-                    user_name: app.user.name,
-                    base_package: app.sermonState.package,
-                    input_type: app.sermonState.inputType,
-                    credits_cost: total
-                });
-
-                pollForCompletion(projectId);
-            } catch (err) {
-                setFlash('error', "Your sermon couldn't be submitted (" + err.message + "). Your credits were NOT charged \u2014 please try again or contact support@gracetools.com.");
-                goTo('dashboard');
+            }).catch(function () {
+                // Connection dropped or timed out - expected on long sermons.
+                // pollForCompletion decides the outcome.
+            });
             }
         }
 
@@ -749,7 +748,7 @@ const content = (app.sermonState.inputContent || '').trim();
 
         async function pollForCompletion(projectId, attempt) {
             attempt = attempt || 1;
-            const MAX_ATTEMPTS = 40; // ~2 minutes at 3s intervals
+            const MAX_ATTEMPTS = 100; // ~5 minutes at 3s intervals
 
             if (app.currentPage !== 'generating' || app.generatingProjectId !== projectId) {
                 return; // user navigated away - stop polling
