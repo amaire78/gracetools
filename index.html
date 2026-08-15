@@ -112,6 +112,11 @@
         const doctrinalPositions = ['Roman Catholic', 'Eastern Orthodox', 'Anglican', 'Lutheran', 'Reformed', 'Baptist', 'Methodist', 'Pentecostal / Charismatic', 'Non-Denominational Evangelical', 'Acts 2 Dispensational', 'Mid-Acts Dispensational'];
         const readingLevels = ['Simple / Accessible', 'Standard', 'Scholarly / Academic'];
         const citationModes = ['Reference Only', 'Full Verse Text'];
+const packageIncludes = {
+            essentials: 'Title, big idea, main points, key takeaways',
+            preacher: 'Everything in Essentials, plus full introduction, historical and cultural background, cross-references, conclusion',
+            master: 'Everything in Preacher, plus verse-by-verse commentary, character studies, a children\u2019s message, discussion questions'
+        };
         const packageRecommendedDuration = { essentials: [15, 30], preacher: [30, 45, 60], master: [45, 60, 90] };
         const packageRecommendedAddons = {
             essentials: ['Discussion Questions', 'Printable'],
@@ -2440,10 +2445,20 @@ const content = (app.sermonState.inputContent || '').trim();
                                     </div>
                                     <div class="grid grid-cols-3 gap-3">
                                         ${Object.entries(packagePrices).map(([pkg, price]) => `
-                                            <button onclick="app.sermonState.package='${pkg}'; render()" class="p-4 rounded-lg border-2 text-center ${app.sermonState.package === pkg ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
-                                                <div class="font-semibold text-gray-900 capitalize">${pkg}</div>
-                                                <div class="text-sm text-gray-600">${price} credits</div>
-                                            </button>
+                                            <div class="relative">
+                                                <button onclick="app.sermonState.package='${pkg}'; app.openPackageInfo=null; render()" class="w-full p-4 rounded-lg border-2 text-center ${app.sermonState.package === pkg ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
+                                                    <div class="font-semibold text-gray-900 capitalize">${pkg}</div>
+                                                    <div class="text-sm text-gray-600">${price} credits</div>
+                                                </button>
+                                                <button type="button" aria-label="What's included in ${pkg}" onclick="event.stopPropagation(); app.openPackageInfo = app.openPackageInfo === '${pkg}' ? null : '${pkg}'; render();" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-xs font-bold leading-none hover:bg-purple-600 hover:text-white">i</button>
+                                                ${app.openPackageInfo === pkg ? `
+                                                    <div class="absolute z-20 left-0 right-0 mt-1 bg-white border border-purple-200 rounded-lg shadow-lg p-3 text-left">
+                                                        <p class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-1">Includes</p>
+                                                        <p class="text-xs text-gray-700 leading-relaxed">${packageIncludes[pkg] || ''}</p>
+                                                        <button type="button" onclick="app.openPackageInfo=null; render();" class="mt-2 text-xs text-purple-600 hover:underline">Close</button>
+                                                    </div>
+                                                ` : ''}
+                                            </div>
                                         `).join('')}
                                     </div>
                                 </div>
