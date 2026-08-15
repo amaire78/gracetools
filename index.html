@@ -2114,7 +2114,15 @@ const content = (app.sermonState.inputContent || '').trim();
                 </div>
             `;
         }
-
+// A one-line, non-technical explanation of what a Fact Checker severity
+// level actually means for a pastor deciding what to do about it. Does not
+// touch sermon content - purely explains the flag.
+function plainSeverityNote(severity) {
+    const s = String(severity || '').toLowerCase();
+    if (s === 'high') return "This one's worth checking closely before Sunday \u2014 it could change what the passage actually means.";
+    if (s === 'medium') return "Worth a look \u2014 a knowledgeable listener might notice this, even if it's not a major error.";
+    return "Minor \u2014 a small precision issue, not likely to be noticed by most listeners.";
+}
         function toggleAddon(type) {
             if (!app.openAddons) app.openAddons = {};
             app.openAddons[type] = !app.openAddons[type];
