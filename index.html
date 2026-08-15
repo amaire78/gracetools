@@ -2018,7 +2018,8 @@ const content = (app.sermonState.inputContent || '').trim();
                             return `<div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
                                 <span class="inline-block ${color} text-xs font-bold uppercase px-2 py-0.5 rounded mb-2">${gtEsc(c.severity || 'note')}</span>
                                 <p class="text-gray-700 text-sm mb-1">${gtEsc(c.issue)}</p>
-                                <p class="text-gray-500 text-xs italic">${gtEsc(c.location)}</p>
+                                <p class="text-gray-500 text-xs italic mb-1">${gtEsc(c.location)}</p>
+                                <p class="text-purple-700 text-xs bg-purple-50 rounded px-2 py-1 mt-2">\uD83D\uDCA1 ${gtEsc(plainSeverityNote(c.severity))}</p>
                             </div>`;
                         }).join('');
                     }
