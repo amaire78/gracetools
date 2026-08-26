@@ -176,10 +176,36 @@ const packageIncludes = {
             account: 'Account Settings - GraceTools'
         };
 
-        function goTo(page) {
+        // Only pages with a real, indexable, bookmarkable URL get an entry
+        // here. Everything else (dashboard, builder, etc.) stays app-state
+        // only and keeps the homepage as its canonical, matching the old
+        // behavior.
+        const PAGE_CANONICAL_PATHS = {
+            home: '/',
+            about: '/about',
+            terms: '/terms',
+            privacy: '/privacy',
+            legal: '/legal',
+            'how-it-works': '/how-it-works',
+            pricing: '/pricing',
+            faq: '/faq'
+        };
+
+        function updateCanonical(page) {
+            const path = PAGE_CANONICAL_PATHS[page] || '/';
+            const link = document.querySelector('link[rel="canonical"]');
+            if (link) link.setAttribute('href', 'https://fastsermonprep.com' + path);
+        }
+
+        function goTo(page, opts) {
             app.currentPage = page;
             window.scrollTo(0, 0);
             document.title = PAGE_TITLES[page] || 'GraceTools';
+            updateCanonical(page);
+            const path = PAGE_CANONICAL_PATHS[page];
+            if (path && !(opts && opts.skipHistory)) {
+                history.pushState(null, '', path);
+            }
             render();
             trackEvent('pageview', { page });
             if (page === 'dashboard' && app.isLoggedIn) {
@@ -2479,7 +2505,7 @@ function plainSeverityNote(severity) {
                                                     <div class="font-semibold text-gray-900 capitalize">${pkg}</div>
                                                     <div class="text-sm text-gray-600">${price} credits</div>
                                                 </button>
-                                                <button type="button" aria-label="What's included in ${pkg}" onclick="event.stopPropagation(); app.openPackageInfo = app.openPackageInfo === '${pkg}' ? null : '${pkg}'; render();" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-xs font-bold leading-none hover:bg-purple-600 hover:text-white">i</button>
+                                                <button type="button" aria-label="i: What's included in ${pkg}" onclick="event.stopPropagation(); app.openPackageInfo = app.openPackageInfo === '${pkg}' ? null : '${pkg}'; render();" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-xs font-bold leading-none hover:bg-purple-600 hover:text-white">i</button>
                                                 ${app.openPackageInfo === pkg ? `
                                                     <div class="absolute z-20 left-0 right-0 mt-1 bg-white border border-purple-200 rounded-lg shadow-lg p-3 text-left">
                                                         <p class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-1">Includes</p>
@@ -3406,6 +3432,31 @@ function plainSeverityNote(severity) {
         // Must run before the first render so a pastor arriving from a reset
         // email lands on the "set a new password" page instead of the homepage.
         detectPasswordRecovery();
+
+        // Route the initial load off the real URL path. Without this, every
+        // path (including /about, /terms) rendered the homepage view with
+        // the homepage title and canonical, which is what the audit flagged.
+        // Only recognized, indexable paths are routed this way; anything
+        // else (e.g. /dashboard, unknown paths) is left as home, matching
+        // prior behavior.
+        (function () {
+            if (app.currentPage === 'reset-password') return; // that flow already claimed it
+            const path = window.location.pathname.replace(/\/+$/, '') || '/';
+            const match = Object.keys(PAGE_CANONICAL_PATHS).find(function (key) {
+                return PAGE_CANONICAL_PATHS[key] === path;
+            });
+            app.currentPage = match || 'home';
+            document.title = PAGE_TITLES[app.currentPage] || 'GraceTools';
+            updateCanonical(app.currentPage);
+        })();
+
+        window.addEventListener('popstate', function () {
+            const path = window.location.pathname.replace(/\/+$/, '') || '/';
+            const match = Object.keys(PAGE_CANONICAL_PATHS).find(function (key) {
+                return PAGE_CANONICAL_PATHS[key] === path;
+            });
+            goTo(match || 'home', { skipHistory: true });
+        });
 
         render();
 
