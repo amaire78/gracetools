@@ -1,4 +1,10 @@
 {
+  "redirects": [
+    { "source": "/essentials-sermon-package.html", "destination": "/", "permanent": true },
+    { "source": "/preacher-sermon-package.html", "destination": "/", "permanent": true },
+    { "source": "/master-sermon-package.html", "destination": "/", "permanent": true },
+    { "source": "/fact-checker.html", "destination": "/", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
